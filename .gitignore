@@ -1,4 +1,4 @@
-# Byte-compiled / optimized / DLL files
+# Python bytecode
 __pycache__/
 *.py[cod]
 *$py.class
@@ -74,6 +74,25 @@ docs/_build/
 # PyBuilder
 .pybuilder/
 target/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# Environment variables
+.env
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
 
 # Jupyter Notebook
 .ipynb_checkpoints
@@ -169,3 +188,19 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Model checkpoints and data
+*.pt
+*.pth
+*.h5
+*.pkl
+*.bin
+
+# Results and logs
+results/
+logs/
+*.log
+
+# OS specific
+.DS_Store
+Thumbs.db
