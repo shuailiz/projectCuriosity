@@ -18,6 +18,17 @@ ACTION_TOKENS = [
     "add",
     "subtract",
 ]
+
+# Actions categorized by type
+RELATION_ACTIONS = ["oppose", "similar", "include"]
+OPERATION_ACTIONS = ["combine", "add", "subtract", "intersect"]
+
+# Special tokens
 UNKNOWN_TOKEN = "<UNK>"
 PAD_TOKEN = "<PAD>"
+FINISH_TOKEN = "<FINISH>"
+
+# Sequence generation settings
+MAX_SEQUENCE_LENGTH = 3  # Maximum number of tokens to generate for multi-word answers
+
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")

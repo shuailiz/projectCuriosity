@@ -25,7 +25,52 @@ class ConceptActionModel(nn.Module):
         # secondary heads
         self.fc_action = nn.Linear(C.HIDDEN_DIM, len(C.ACTION_TOKENS))  # action classifier
 
-    def forward(self, a, action, b):
+    def forward(self, a, action, b=None, is_relation=False):
+        """Forward pass through the model.
+        
+        For relation actions (is_relation=True): Takes concept_a and action, predicts concept_b
+        For operation actions (is_relation=False): Takes concept_a, action, concept_b, predicts concept_c
+        
+        Args:
+            a: Tensor of concept_a IDs
+            action: Tensor of action IDs
+            b: Tensor of concept_b IDs (None for relation actions)
+            is_relation: Whether this is a relation action
+            
+        Returns:
+            concept_logits: Logits over vocabulary for the predicted concept
+        """
+        if is_relation:
+            # For relation actions, only use concept_a and action to predict concept_b
+            return self.forward_relation(a, action)
+        else:
+            # For operation actions, use concept_a, action, and concept_b to predict concept_c
+            return self.forward_operation(a, action, b)
+    
+    def forward_relation(self, a, action):
+        """Forward pass for relation actions (concept_a + action → concept_b)."""
+        # Only use position 0 for concept_a
+        pos0 = self.pos_embed(torch.zeros_like(a))
+        emb_a = self.concept_embed(a) + pos0
+        
+        # Create a placeholder for concept_b (zeros)
+        placeholder = torch.zeros_like(a)
+        pos1 = self.pos_embed(placeholder + 1)
+        placeholder_emb = torch.zeros((a.shape[0], C.EMBED_DIM), device=C.DEVICE)
+        
+        # Concatenate embeddings
+        x = torch.cat([
+            emb_a,
+            self.action_embed(action),
+            placeholder_emb + pos1,  # Use placeholder for concept_b
+        ], dim=-1)
+        
+        h = F.relu(self.fc1(x))
+        concept_logits = self.fc2(h)
+        return concept_logits
+    
+    def forward_operation(self, a, action, b):
+        """Forward pass for operation actions (concept_a + concept_b + action → concept_c)."""
         # positional embeddings
         pos0 = self.pos_embed(torch.zeros_like(a))
         pos1 = self.pos_embed(torch.zeros_like(b) + 1)

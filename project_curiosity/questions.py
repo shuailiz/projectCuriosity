@@ -54,26 +54,29 @@ def correction_prompt(action: str, concept_a: str, concept_b: str) -> str:
     Returns:
         A prompt string for the LLM
     """
+    from . import config as C
+    max_words = C.MAX_SEQUENCE_LENGTH
+    
     # Relation actions (asking for a concept that correctly has the relation)
     if action == "oppose":
-        return f"What is a concept that opposes '{concept_a}'? Answer in one word."
+        return f"What is a concept that opposes '{concept_a}'? Answer with 1-{max_words} words."
     elif action == "include":
-        return f"What is a concept that '{concept_a}' includes? Answer in one word."
+        return f"What is a concept that '{concept_a}' includes? Answer with 1-{max_words} words."
     elif action == "similar":
-        return f"What is a concept that is similar to '{concept_a}'? Answer in one word."
+        return f"What is a concept that is similar to '{concept_a}'? Answer with 1-{max_words} words."
     
     # Operation actions (asking for the correct result of the operation)
     elif action == "combine":
-        return f"What is the result of combining '{concept_a}' and '{concept_b}'? Answer in one word."
+        return f"What is the result of combining '{concept_a}' and '{concept_b}'? Answer with 1-{max_words} words."
     elif action == "add":
-        return f"What is the result of adding '{concept_b}' to '{concept_a}'? Answer in one word."
+        return f"What is the result of adding '{concept_b}' to '{concept_a}'? Answer with 1-{max_words} words."
     elif action == "subtract":
-        return f"What is the result of subtracting '{concept_b}' from '{concept_a}'? Answer in one word."
+        return f"What is the result of subtracting '{concept_b}' from '{concept_a}'? Answer with 1-{max_words} words."
     elif action == "intersect":
-        return f"What is the intersection of '{concept_a}' and '{concept_b}'? Answer in one word."
+        return f"What is the intersection of '{concept_a}' and '{concept_b}'? Answer with 1-{max_words} words."
     
     # Fallback for any other action
-    return f"What is the result when you {action} '{concept_a}' and '{concept_b}'? Answer in one word."
+    return f"What is the result when you {action} '{concept_a}' and '{concept_b}'? Answer with 1-{max_words} words."
 
 def question_is_valid(question: str) -> bool:
     """Ask the LLM if the question is meaningful (quick heuristic)."""

@@ -16,8 +16,10 @@ from . import questions as Q
 from . import actions
 
 class Trainer:
-    def __init__(self, vocab: Vocabulary):
+    def __init__(self, vocab: Vocabulary, logger=None):
         self.vocab = vocab
+        self.logger = logger
+        self.step_count = 0  # Track training steps for logging
         from .embeddings import load_pretrained, build_embedding_matrix
         kv = load_pretrained()  # may download once
         emb_matrix = build_embedding_matrix(self.vocab.tokens, kv).to(C.DEVICE)
@@ -38,16 +40,28 @@ class Trainer:
         act_id = torch.multinomial(F.softmax(action_logits_prop, dim=-1), 1).item()
         act_tok = C.ACTION_TOKENS[act_id]
 
-        # For decompose we ignore b and use PAD
-        if act_tok == "decompose":
-            b_id = 1  # PAD token index
+        # Get token strings for concepts
         a_tok, b_tok = self.vocab.decode(a_id), self.vocab.decode(b_id)
-
-        concept_logits, action_logits = self.model(
-            torch.tensor([a_id], device=C.DEVICE),
-            torch.tensor([act_id], device=C.DEVICE),
-            torch.tensor([b_id], device=C.DEVICE),
-        )
+        
+        # Check if this is a relation action
+        is_relation = act_tok in C.RELATION_ACTIONS
+        
+        # Forward pass through model - different handling for relation vs. operation actions
+        if is_relation:
+            # For relation actions, only use concept_a and action
+            concept_logits = self.model(
+                torch.tensor([a_id], device=C.DEVICE),
+                torch.tensor([act_id], device=C.DEVICE),
+                is_relation=True
+            )
+        else:
+            # For operation actions, use concept_a, action, and concept_b
+            concept_logits = self.model(
+                torch.tensor([a_id], device=C.DEVICE),
+                torch.tensor([act_id], device=C.DEVICE),
+                torch.tensor([b_id], device=C.DEVICE),
+                is_relation=False
+            )
         
         # Prepare model outputs for action handler
         model_output = {
@@ -59,14 +73,108 @@ class Trainer:
         # Get appropriate handler for this action
         handler = actions.get_handler(act_tok)
         
+        # Increment step counter
+        self.step_count += 1
+        
         # Handle action-specific logic
         result = handler(
             model_output=model_output,
             concept_a=a_tok,
             concept_b=b_tok,
-            action=act_tok,
             vocab_decode_fn=self.vocab.decode,
             vocab_add_fn=self.vocab.add,
+            logger=self.logger,
+            step=self.step_count,
+        )
+        
+        # Handle invalid questions
+        if result.get("skip", False):
+            # If there's an action loss, apply it
+            if "action_loss" in result:
+                action_loss = result["action_loss"]
+                self.opt.zero_grad()
+                action_loss.backward()
+                self.opt.step()
+                return {"skip": True, "action_loss": float(action_loss.item())}
+            return {"skip": True}
+        
+        # Apply gradients
+        loss = result["loss"]
+        self.opt.zero_grad()
+        loss.backward()
+        self.opt.step()
+        
+        # Return training info
+        return dict(
+            concept_a=a_tok,
+            concept_b=b_tok,
+            action=act_tok,
+            model_answer=result["model_answer"],
+            is_correct=result["is_correct"],
+            correct_answer=result["correct_answer"],
+            loss=float(loss.item()),
+        )
+    
+    def train_step_with_human_feedback(self) -> Dict[str, str]:
+        """Run one training step with human feedback instead of LLM.
+        
+        Returns:
+            Dictionary with training information
+        """
+        a_id, b_id = self._sample_pair()
+        # propose action
+        action_logits_prop = self.model.propose_action(
+            torch.tensor([a_id], device=C.DEVICE),
+            torch.tensor([b_id], device=C.DEVICE),
+        )
+        act_id = torch.multinomial(F.softmax(action_logits_prop, dim=-1), 1).item()
+        act_tok = C.ACTION_TOKENS[act_id]
+
+        # Get token strings for concepts
+        a_tok, b_tok = self.vocab.decode(a_id), self.vocab.decode(b_id)
+        
+        # Check if this is a relation action
+        is_relation = act_tok in C.RELATION_ACTIONS
+        
+        # Forward pass through model - different handling for relation vs. operation actions
+        if is_relation:
+            # For relation actions, only use concept_a and action
+            concept_logits = self.model(
+                torch.tensor([a_id], device=C.DEVICE),
+                torch.tensor([act_id], device=C.DEVICE),
+                is_relation=True
+            )
+        else:
+            # For operation actions, use concept_a, action, and concept_b
+            concept_logits = self.model(
+                torch.tensor([a_id], device=C.DEVICE),
+                torch.tensor([act_id], device=C.DEVICE),
+                torch.tensor([b_id], device=C.DEVICE),
+                is_relation=False
+            )
+        
+        # Prepare model outputs for action handler
+        model_output = {
+            "concept_logits": concept_logits,
+            "action_logits_prop": action_logits_prop,
+            "act_id": act_id,
+        }
+        
+        # Get appropriate handler for this action with human feedback enabled
+        handler = actions.get_handler(act_tok, human_feedback=True)
+        
+        # Increment step counter
+        self.step_count += 1
+        
+        # Handle action-specific logic with human feedback
+        result = handler(
+            model_output=model_output,
+            concept_a=a_tok,
+            concept_b=b_tok,
+            vocab_decode_fn=self.vocab.decode,
+            vocab_add_fn=self.vocab.add,
+            logger=self.logger,
+            step=self.step_count,
         )
         
         # Handle invalid questions
