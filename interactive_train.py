@@ -20,19 +20,22 @@ import json
 from project_curiosity import config as C
 from project_curiosity.vocabulary import Vocabulary
 from project_curiosity.model import ConceptActionModel
+from project_curiosity.dual_network_model import DualNetworkModel
 from project_curiosity.trainer import Trainer
+from project_curiosity.dual_trainer import DualNetworkTrainer
 from project_curiosity.training_logger import TrainingLogger
 
 
-def load_checkpoint(checkpoint_path: str, vocab_path: str):
+def load_checkpoint(checkpoint_path: str, vocab_path: str, use_dual: bool = False):
     """Load model checkpoint, vocabulary, and config file.
     
     Args:
         checkpoint_path: Path to model checkpoint file
         vocab_path: Path to vocabulary pickle file
+        use_dual: Whether to load as dual network model
         
     Returns:
-        Tuple of (model, vocabulary, optimizer_state, config)
+        Tuple of (model, vocabulary, optimizer_state, config, is_dual)
     """
     # Load config file
     config_path = checkpoint_path.replace('.pt', '_config.json')
@@ -76,8 +79,30 @@ def load_checkpoint(checkpoint_path: str, vocab_path: str):
     kv = load_pretrained(embedding_method)
     emb_matrix = build_embedding_matrix(vocab.tokens, kv).to(C.DEVICE)
     
-    # Create model
-    model = ConceptActionModel(C.VOCAB_SIZE, emb_matrix, freeze_embeddings=False).to(C.DEVICE)
+    # Determine if this is a dual network model from config
+    # If config doesn't exist, fall back to the use_dual parameter
+    if config and 'is_dual_network' in config:
+        is_dual = config['is_dual_network']
+        print(f"Model type from config: {'Dual Network' if is_dual else 'Single Network'}")
+        
+        # Validate against user's expectation
+        if use_dual and not is_dual:
+            print("Warning: use_dual=True but checkpoint is single network. Using checkpoint type.")
+        elif not use_dual and is_dual:
+            print("Warning: use_dual=False but checkpoint is dual network. Using checkpoint type.")
+    else:
+        # No config file, use the parameter
+        is_dual = use_dual
+        print(f"No config found, using use_dual parameter: {is_dual}")
+    
+    # Create model based on detected type
+    if is_dual:
+        print("Loading as dual network model...")
+        model = DualNetworkModel(C.VOCAB_SIZE, emb_matrix, freeze_embeddings=False).to(C.DEVICE)
+    else:
+        print("Loading as single network model...")
+        model = ConceptActionModel(C.VOCAB_SIZE, emb_matrix, freeze_embeddings=False).to(C.DEVICE)
+    
     model.load_state_dict(checkpoint['model_state_dict'])
     
     # Load optimizer state if available
@@ -85,33 +110,53 @@ def load_checkpoint(checkpoint_path: str, vocab_path: str):
     
     print(f"\nModel loaded successfully (epoch {checkpoint.get('epoch', 'unknown')})")
     
-    return model, vocab, optimizer_state, config
+    return model, vocab, optimizer_state, config, is_dual
 
 
-def save_checkpoint(model, vocab, optimizer, epoch: int, total_steps: int, checkpoint_path: str, vocab_path: str):
+def save_checkpoint(model, vocab, optimizer, epoch: int, total_steps: int, checkpoint_path: str, vocab_path: str, 
+                    is_dual: bool = False):
     """Save model checkpoint, vocabulary, and config file.
     
     Args:
         model: The model to save
         vocab: The vocabulary to save
-        optimizer: The optimizer to save
+        optimizer: The optimizer(s) to save. For dual network, pass tuple (fast_opt, slow_opt)
         epoch: Current epoch number
         total_steps: Total training steps completed
         checkpoint_path: Path to save model checkpoint
         vocab_path: Path to save vocabulary
+        is_dual: Whether this is a dual network model
     """
     print(f"\nSaving checkpoint to {checkpoint_path}...")
     
     # Create directory if it doesn't exist
     os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
     
-    # Save model checkpoint
-    torch.save({
+    # Prepare checkpoint data
+    checkpoint_data = {
         'epoch': epoch,
         'total_steps': total_steps,
         'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-    }, checkpoint_path)
+    }
+    
+    # Save optimizer state(s)
+    if is_dual:
+        # Dual network: expect tuple (fast_opt, slow_opt)
+        if not isinstance(optimizer, tuple) or len(optimizer) != 2:
+            raise ValueError("For dual network (is_dual=True), optimizer must be a tuple (fast_opt, slow_opt)")
+        fast_opt, slow_opt = optimizer
+        checkpoint_data['optimizer_state_dict'] = {
+            'fast_opt': fast_opt.state_dict(),
+            'slow_opt': slow_opt.state_dict()
+        }
+    else:
+        # Single network: single optimizer
+        if isinstance(optimizer, tuple):
+            raise ValueError("For single network (is_dual=False), optimizer should not be a tuple")
+        checkpoint_data['optimizer_state_dict'] = optimizer.state_dict()
+    
+    # Save model checkpoint
+    torch.save(checkpoint_data, checkpoint_path)
     
     # Save vocabulary
     print(f"Saving vocabulary to {vocab_path}...")
@@ -122,13 +167,9 @@ def save_checkpoint(model, vocab, optimizer, epoch: int, total_steps: int, check
     config_path = checkpoint_path.replace('.pt', '_config.json')
     print(f"Saving config to {config_path}...")
     
-    # Get current learning rate from optimizer
-    learning_rate = optimizer.param_groups[0]['lr']
-    
     config = {
         'epoch': epoch,
         'total_steps': total_steps,
-        'learning_rate': learning_rate,
         'embedding_method': 'glove-wiki-gigaword-100',  # From embeddings.py
         'vocab_size': len(vocab.tokens),
         'embed_dim': C.EMBED_DIM,
@@ -137,7 +178,16 @@ def save_checkpoint(model, vocab, optimizer, epoch: int, total_steps: int, check
         'device': str(C.DEVICE),
         'checkpoint_path': checkpoint_path,
         'vocab_path': vocab_path,
+        'is_dual_network': is_dual,
     }
+    
+    # Add learning rate(s)
+    if is_dual:
+        fast_opt, slow_opt = optimizer
+        config['fast_learning_rate'] = fast_opt.param_groups[0]['lr']
+        config['slow_learning_rate'] = slow_opt.param_groups[0]['lr']
+    else:
+        config['learning_rate'] = optimizer.param_groups[0]['lr']
     
     with open(config_path, 'w') as f:
         import json
@@ -147,10 +197,13 @@ def save_checkpoint(model, vocab, optimizer, epoch: int, total_steps: int, check
     print(f"  - Model: {checkpoint_path}")
     print(f"  - Vocabulary: {vocab_path}")
     print(f"  - Config: {config_path}")
+    if is_dual:
+        print(f"  - Dual network: Yes (both optimizers saved)")
 
 
 def interactive_training_loop(trainer: Trainer, num_steps: int, save_interval: int,
-                              checkpoint_path: str, vocab_path: str, starting_total_steps: int = 0):
+                              checkpoint_path: str, vocab_path: str, starting_total_steps: int = 0,
+                              is_dual: bool = False):
     """Run interactive training loop with human feedback.
     
     Args:
@@ -160,6 +213,7 @@ def interactive_training_loop(trainer: Trainer, num_steps: int, save_interval: i
         checkpoint_path: Path to save checkpoints
         vocab_path: Path to save vocabulary
         starting_total_steps: Total steps completed before this session
+        is_dual: Whether using dual network trainer
     """
     print("\n" + "="*80)
     print("Starting Interactive Training with Human Feedback")
@@ -176,13 +230,15 @@ def interactive_training_loop(trainer: Trainer, num_steps: int, save_interval: i
     
     try:
         for step in range(num_steps):
-            total_steps += 1
             print(f"\n{'='*80}")
-            print(f"Training Step {step + 1}/{num_steps} (Total: {total_steps})")
+            print(f"Training Step {total_steps + 1} (Session: {step + 1}/{num_steps})")
             print(f"{'='*80}")
             
             # Run one training step with human feedback
-            result = trainer.train_step_with_human_feedback()
+            result = trainer.train_step_with_human_feedback(total_steps=total_steps + 1)
+            
+            # Increment total_steps only after successful completion
+            total_steps += 1
             
             # Display results
             print(f"\n--- Step Results ---")
@@ -209,43 +265,88 @@ def interactive_training_loop(trainer: Trainer, num_steps: int, save_interval: i
             # Save checkpoint at intervals
             if (step + 1) % save_interval == 0:
                 epoch += 1
-                save_checkpoint(
-                    trainer.model,
-                    trainer.vocab,
-                    trainer.opt,
-                    epoch,
-                    total_steps,
-                    checkpoint_path,
-                    vocab_path
-                )
+                if is_dual:
+                    # Dual network
+                    save_checkpoint(
+                        trainer.model,
+                        trainer.vocab,
+                        (trainer.fast_opt, trainer.slow_opt),
+                        epoch,
+                        total_steps,
+                        checkpoint_path,
+                        vocab_path,
+                        is_dual=True
+                    )
+                else:
+                    # Single network
+                    save_checkpoint(
+                        trainer.model,
+                        trainer.vocab,
+                        trainer.opt,
+                        epoch,
+                        total_steps,
+                        checkpoint_path,
+                        vocab_path,
+                        is_dual=False
+                    )
                 print(f"\nCheckpoint saved at step {step + 1} (total: {total_steps})")
             
     except KeyboardInterrupt:
         print("\n\nTraining interrupted by user.")
         print("Saving final checkpoint...")
-        save_checkpoint(
-            trainer.model,
-            trainer.vocab,
-            trainer.opt,
-            epoch,
-            total_steps,
-            checkpoint_path,
-            vocab_path
-        )
+        if is_dual:
+            # Dual network
+            save_checkpoint(
+                trainer.model,
+                trainer.vocab,
+                (trainer.fast_opt, trainer.slow_opt),
+                epoch,
+                total_steps,
+                checkpoint_path,
+                vocab_path,
+                is_dual=True
+            )
+        else:
+            # Single network
+            save_checkpoint(
+                trainer.model,
+                trainer.vocab,
+                trainer.opt,
+                epoch,
+                total_steps,
+                checkpoint_path,
+                vocab_path,
+                is_dual=False
+            )
         print("Final checkpoint saved. Exiting.")
         sys.exit(0)
     
     # Save final checkpoint
     print("\n\nTraining completed!")
-    save_checkpoint(
-        trainer.model,
-        trainer.vocab,
-        trainer.opt,
-        epoch + 1,
-        total_steps,
-        checkpoint_path,
-        vocab_path
-    )
+    if is_dual:
+        # Dual network
+        save_checkpoint(
+            trainer.model,
+            trainer.vocab,
+            (trainer.fast_opt, trainer.slow_opt),
+            epoch + 1,
+            total_steps,
+            checkpoint_path,
+            vocab_path,
+            is_dual=True
+        )
+    else:
+        # Single network
+        save_checkpoint(
+            trainer.model,
+            trainer.vocab,
+            trainer.opt,
+            epoch + 1,
+            total_steps,
+            checkpoint_path,
+            vocab_path,
+            is_dual=False
+        )
 
 
 def main():
@@ -275,6 +376,23 @@ def main():
         type=float,
         default=None,
         help='Learning rate for optimizer (overrides config value)'
+    )
+    parser.add_argument(
+        '--dual',
+        action='store_true',
+        help='Use dual network model (fast + slow learners)'
+    )
+    parser.add_argument(
+        '--fast-lr',
+        type=float,
+        default=None,
+        help='Learning rate for fast learner (dual network only)'
+    )
+    parser.add_argument(
+        '--slow-lr',
+        type=float,
+        default=None,
+        help='Learning rate for slow learner (dual network only)'
     )
     
     args = parser.parse_args()
@@ -334,41 +452,80 @@ def main():
         # Create training logger
         logger = TrainingLogger(model_dir)
         
-        # Create new trainer
-        trainer = Trainer(vocab, logger=logger)
-        
-        # Set learning rate from config
-        if 'learning_rate' in config:
-            for param_group in trainer.opt.param_groups:
-                param_group['lr'] = config['learning_rate']
+        # Create new trainer (dual or single network)
+        is_dual = args.dual
+        if is_dual:
+            print("\nInitializing dual network trainer...")
+            trainer = DualNetworkTrainer(
+                vocab, 
+                logger=logger,
+                fast_lr=args.fast_lr,
+                slow_lr=args.slow_lr
+            )
+        else:
+            print("\nInitializing single network trainer...")
+            trainer = Trainer(vocab, logger=logger)
+            
+            # Set learning rate from config
+            if 'learning_rate' in config:
+                for param_group in trainer.opt.param_groups:
+                    param_group['lr'] = config['learning_rate']
     else:
         print(f"Resuming training for model: {model_dir}")
         
-        # Load checkpoint
-        model, vocab, optimizer_state, config = load_checkpoint(checkpoint_path, vocab_path)
+        # Load checkpoint (auto-detects dual vs single network)
+        model, vocab, optimizer_state, config, is_dual = load_checkpoint(
+            checkpoint_path, vocab_path, use_dual=args.dual
+        )
         
         # Create training logger
         logger = TrainingLogger(model_dir)
         
-        # Create trainer with loaded model
-        trainer = Trainer(vocab, logger=logger)
-        trainer.model = model
-        
-        # Restore optimizer state
-        if optimizer_state:
-            trainer.opt.load_state_dict(optimizer_state)
-            print("Optimizer state restored")
-        
-        # Use learning rate from config
-        if config and 'learning_rate' in config:
-            for param_group in trainer.opt.param_groups:
-                param_group['lr'] = config['learning_rate']
+        # Create trainer based on model type
+        if is_dual:
+            print("\nResuming with dual network trainer...")
+            trainer = DualNetworkTrainer(
+                vocab, 
+                logger=logger,
+                fast_lr=args.fast_lr,
+                slow_lr=args.slow_lr
+            )
+            trainer.model = model
+            
+            # Restore optimizer states for both networks
+            if optimizer_state:
+                if 'fast_opt' in optimizer_state:
+                    trainer.fast_opt.load_state_dict(optimizer_state['fast_opt'])
+                    print("Fast learner optimizer state restored")
+                if 'slow_opt' in optimizer_state:
+                    trainer.slow_opt.load_state_dict(optimizer_state['slow_opt'])
+                    print("Slow learner optimizer state restored")
+        else:
+            print("\nResuming with single network trainer...")
+            trainer = Trainer(vocab, logger=logger)
+            trainer.model = model
+            
+            # Restore optimizer state
+            if optimizer_state:
+                trainer.opt.load_state_dict(optimizer_state)
+                print("Optimizer state restored")
+            
+            # Use learning rate from config
+            if config and 'learning_rate' in config:
+                for param_group in trainer.opt.param_groups:
+                    param_group['lr'] = config['learning_rate']
     
     # Override learning rate if specified on command line
     if args.learning_rate is not None:
         print(f"\nOverriding learning rate to {args.learning_rate}")
-        for param_group in trainer.opt.param_groups:
-            param_group['lr'] = args.learning_rate
+        if is_dual:
+            for param_group in trainer.fast_opt.param_groups:
+                param_group['lr'] = args.learning_rate
+            for param_group in trainer.slow_opt.param_groups:
+                param_group['lr'] = args.learning_rate
+        else:
+            for param_group in trainer.opt.param_groups:
+                param_group['lr'] = args.learning_rate
     
     # Get save_interval from config or command line
     save_interval = args.save_interval if args.save_interval is not None else config.get('save_interval', 10)
@@ -385,7 +542,8 @@ def main():
         save_interval,
         checkpoint_path,
         vocab_path,
-        starting_total_steps
+        starting_total_steps,
+        is_dual=is_dual
     )
 
 
