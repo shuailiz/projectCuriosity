@@ -1,4 +1,5 @@
 import serial
+import serial.tools.list_ports
 import time
 import sys
 
@@ -66,10 +67,48 @@ class FastStableController:
         if hasattr(self, 'serial') and self.serial.is_open:
             self.serial.close()
 
+def list_ports():
+    ports = serial.tools.list_ports.comports()
+    if not ports:
+        return []
+    return ports
+
+def select_port():
+    ports = list_ports()
+    if not ports:
+        print("No serial ports found!")
+        return None
+    
+    print("\nAvailable ports:")
+    for i, p in enumerate(ports):
+        print(f"{i+1}: {p.device} - {p.description}")
+    
+    while True:
+        try:
+            selection = input("\nSelect port (number) or enter path manually: ").strip()
+            if not selection:
+                continue
+                
+            if selection.isdigit():
+                idx = int(selection) - 1
+                if 0 <= idx < len(ports):
+                    return ports[idx].device
+            else:
+                return selection
+        except ValueError:
+            pass
+
 def main():
     print("=== Fast Stable Servo Controller ===")
     
-    controller = FastStableController("/dev/cu.usbmodem13201")
+    if len(sys.argv) > 1:
+        port = sys.argv[1]
+    else:
+        port = select_port()
+        if not port:
+            sys.exit(1)
+    
+    controller = FastStableController(port)
     
     try:
         print("Commands: servo1 <angle>, servo2 <angle>, both <angle>, servos <a1> <a2>, angles, stop, quit")
