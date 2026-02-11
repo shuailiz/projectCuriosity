@@ -59,6 +59,11 @@ class Vocabulary:
     def decode(self, idx: int) -> str:
         return self.tokens[idx] if 0 <= idx < len(self.tokens) else C.UNKNOWN_TOKEN
 
+    @property
+    def size(self) -> int:
+        """Return the total vocabulary size (including special and empty tokens)."""
+        return len(self.tokens)
+    
     def random_concept(self) -> int:
         """Return a random valid concept ID, excluding special tokens.
         

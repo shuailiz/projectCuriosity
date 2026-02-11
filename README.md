@@ -47,6 +47,18 @@ The system handles two primary categories of actions:
 - **Mock Testing**: Supports offline testing with mock LLM responses
 - **Modular Design**: Clear separation between relation and operation actions
 
+## Setup
+
+### Download Embeddings (One-time)
+
+Before training, download the GloVe embeddings for offline use:
+
+```bash
+python download_embeddings.py
+```
+
+This downloads `glove-wiki-gigaword-100` (~65 MB) and caches it locally, so training doesn't require internet access.
+
 ## Usage
 
 ### Training

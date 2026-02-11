@@ -81,6 +81,6 @@ def correction_prompt(action: str, concept_a: str, concept_b: str) -> str:
 def question_is_valid(question: str) -> bool:
     """Ask the LLM if the question is meaningful (quick heuristic)."""
     response = ask(
-        f"Does the following question make logical sense? Answer 'yes' or 'no':\n{question}"
+        f"Does the following question make logical sense? Assuming 'something' or '<EMPTY-xxx>' is a placeholder for any concept, Answer 'yes' or 'no':\n{question}"
     ).lower()
     return response.startswith("y")

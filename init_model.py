@@ -20,14 +20,18 @@ from project_curiosity.vocabulary import Vocabulary
 
 
 def create_model_directory(model_dir: str, vocab_words: list, learning_rate: float = None,
-                           embedding_method: str = 'glove-wiki-gigaword-100'):
+                           embedding_method: str = 'glove-wiki-gigaword-100', 
+                           dual: bool = False, fast_lr: float = None, slow_lr: float = None):
     """Create a new model directory with initial vocabulary and config.
     
     Args:
         model_dir: Path to model directory to create
         vocab_words: List of initial vocabulary words
-        learning_rate: Learning rate for training (default: from config)
+        learning_rate: Learning rate for training (single network, default: from config)
         embedding_method: Embedding method to use
+        dual: Whether to create a dual network model
+        fast_lr: Fast learner learning rate (dual network only)
+        slow_lr: Slow learner learning rate (dual network only)
     """
     # Create model directory
     os.makedirs(model_dir, exist_ok=True)
@@ -44,13 +48,9 @@ def create_model_directory(model_dir: str, vocab_words: list, learning_rate: flo
     print(f"Vocabulary saved: {vocab_path}")
     
     # Create config
-    if learning_rate is None:
-        learning_rate = C.LEARNING_RATE
-    
     config = {
         'epoch': 0,
         'total_steps': 0,  # Total training steps completed
-        'learning_rate': learning_rate,
         'embedding_method': embedding_method,
         'vocab_size': len(vocab.tokens),
         'embed_dim': C.EMBED_DIM,
@@ -59,7 +59,20 @@ def create_model_directory(model_dir: str, vocab_words: list, learning_rate: flo
         'save_interval': 10,  # Save checkpoint every N steps
         'device': str(C.DEVICE),
         'model_dir': model_dir,
+        'is_dual_network': dual,
     }
+    
+    # Add learning rates based on model type
+    if dual:
+        config['fast_learning_rate'] = fast_lr if fast_lr is not None else C.FAST_LEARNING_RATE
+        config['slow_learning_rate'] = slow_lr if slow_lr is not None else C.SLOW_LEARNING_RATE
+        config['fast_embed_dim'] = C.FAST_EMBED_DIM
+        config['fast_hidden_dim'] = C.FAST_HIDDEN_DIM
+        config['slow_embed_dim'] = C.SLOW_EMBED_DIM
+        config['slow_hidden_dim'] = C.SLOW_HIDDEN_DIM
+        config['consolidation_interval'] = C.CONSOLIDATION_INTERVAL
+    else:
+        config['learning_rate'] = learning_rate if learning_rate is not None else C.LEARNING_RATE
     
     config_path = os.path.join(model_dir, 'config.json')
     with open(config_path, 'w') as f:
@@ -67,12 +80,20 @@ def create_model_directory(model_dir: str, vocab_words: list, learning_rate: flo
     print(f"Config saved: {config_path}")
     
     print(f"\nModel initialized successfully!")
+    print(f"Model type: {'Dual Network' if dual else 'Single Network'}")
     print(f"Model directory: {model_dir}")
     print(f"  - Vocabulary: {len(vocab.tokens)} tokens")
-    print(f"  - Learning rate: {learning_rate}")
+    if dual:
+        print(f"  - Fast learner LR: {config['fast_learning_rate']}")
+        print(f"  - Slow learner LR: {config['slow_learning_rate']}")
+    else:
+        print(f"  - Learning rate: {config['learning_rate']}")
     print(f"  - Embedding method: {embedding_method}")
     print(f"\nTo start training:")
-    print(f"  python interactive_train.py --model {model_dir}")
+    if dual:
+        print(f"  python interactive_train.py --model {model_dir} --dual")
+    else:
+        print(f"  python interactive_train.py --model {model_dir}")
 
 
 def main():
@@ -106,6 +127,23 @@ def main():
         type=str,
         default='glove-wiki-gigaword-100',
         help='Embedding method to use (default: glove-wiki-gigaword-100)'
+    )
+    parser.add_argument(
+        '--dual',
+        action='store_true',
+        help='Create a dual network model (hippocampus-cortex system)'
+    )
+    parser.add_argument(
+        '--fast-lr',
+        type=float,
+        default=None,
+        help='Fast learner learning rate (dual network only, default: from config)'
+    )
+    parser.add_argument(
+        '--slow-lr',
+        type=float,
+        default=None,
+        help='Slow learner learning rate (dual network only, default: from config)'
     )
     
     args = parser.parse_args()
@@ -141,7 +179,10 @@ def main():
         args.model_dir,
         vocab_words,
         args.learning_rate,
-        args.embedding_method
+        args.embedding_method,
+        dual=args.dual,
+        fast_lr=args.fast_lr,
+        slow_lr=args.slow_lr
     )
 
 
