@@ -13,6 +13,13 @@ ENCODED_DIM = 512       # Output dimension of the visual encoder
 ACTION_DIM = 2          # Servo 1 delta, Servo 2 delta
 ACTION_SCALE = 10.0     # Maximum degree change per step
 
+# Servo Limits (Degrees)
+# S1: Left/Right (Base), S2: Up/Down (Tilt)
+SERVO_LIMITS = [
+    (-90.0, 90.0),  # S1 Min/Max
+    (-40.0, 40.0)   # S2 Min/Max
+]
+
 # Dual Network Settings
 # Fast Learner (Hippocampus)
 FAST_HIDDEN_DIM = 256

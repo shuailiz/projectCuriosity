@@ -78,11 +78,14 @@ class RobotInterface:
         new_s1 = self.current_angles[0] + delta_s1
         new_s2 = self.current_angles[1] + delta_s2
         
-        # Clip to hardware limits (usually -90 to 90)
-        # We can define limits in config, or assume -90 to 90.
-        LIMIT = 90.0
-        new_s1 = max(-LIMIT, min(LIMIT, new_s1))
-        new_s2 = max(-LIMIT, min(LIMIT, new_s2))
+        # Clip to hardware limits defined in config
+        # S1 Limits
+        s1_min, s1_max = C.SERVO_LIMITS[0]
+        new_s1 = max(s1_min, min(s1_max, new_s1))
+        
+        # S2 Limits
+        s2_min, s2_max = C.SERVO_LIMITS[1]
+        new_s2 = max(s2_min, min(s2_max, new_s2))
         
         # Calculate actual deltas
         actual_delta_s1 = new_s1 - self.current_angles[0]

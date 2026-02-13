@@ -26,8 +26,8 @@ def main():
         return
 
     print("\nControls:")
-    print("  W / S : Servo 1 Up / Down")
-    print("  A / D : Servo 2 Left / Right")
+    print("  W / S : Servo 2 (Up / Down)")
+    print("  A / D : Servo 1 (Left / Right)")
     print("  Q     : Quit")
     
     try:
@@ -43,7 +43,7 @@ def main():
             
             # Add overlay text
             s1, s2 = robot.current_angles
-            text = f"S1: {s1:.1f}  S2: {s2:.1f}"
+            text = f"S1(L/R): {s1:.1f}  S2(U/D): {s2:.1f}"
             cv2.putText(frame_bgr, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
             
             cv2.imshow("Robot Stream", frame_bgr)
@@ -57,13 +57,13 @@ def main():
             d1, d2 = 0.0, 0.0
             
             if key == ord('w'):
-                d1 = args.step
-            elif key == ord('s'):
-                d1 = -args.step
-            elif key == ord('a'):
                 d2 = args.step
-            elif key == ord('d'):
+            elif key == ord('s'):
                 d2 = -args.step
+            elif key == ord('a'):
+                d1 = args.step
+            elif key == ord('d'):
+                d1 = -args.step
                 
             if d1 != 0 or d2 != 0:
                 robot.move_servos(d1, d2)
