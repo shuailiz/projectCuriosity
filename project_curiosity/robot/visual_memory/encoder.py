@@ -9,18 +9,27 @@ class VisualEncoder(nn.Module):
     """
     Visual Encoder using a pre-trained ResNet backbone to extract image embeddings.
     """
-    def __init__(self, model_name='resnet18', pretrained=True):
+    def __init__(self, model_name=None, pretrained=True):
         super().__init__()
         
         self.device = C.DEVICE
         
+        if model_name is None:
+            model_name = C.ENCODER_MODEL
+        
         # Load pre-trained model
-        if model_name == 'resnet18':
-            self.backbone = models.resnet18(pretrained=pretrained)
-            # ResNet18 output before fc is 512
-            self.feature_dim = 512
-        else:
-            raise NotImplementedError(f"Model {model_name} not implemented yet")
+        resnet_configs = {
+            'resnet18': (models.resnet18, 512),
+            'resnet34': (models.resnet34, 512),
+            'resnet50': (models.resnet50, 2048),
+        }
+        
+        if model_name not in resnet_configs:
+            raise ValueError(f"Unsupported model '{model_name}'. Choose from: {list(resnet_configs.keys())}")
+        
+        model_fn, self.feature_dim = resnet_configs[model_name]
+        self.backbone = model_fn(pretrained=pretrained)
+        print(f"VisualEncoder: {model_name} (feature_dim={self.feature_dim} -> {C.ENCODED_DIM})")
 
         # Replace the final fully connected layer with Identity to get features
         # The average pooling layer output is what we want

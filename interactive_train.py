@@ -20,7 +20,7 @@ import json
 from project_curiosity import config as C
 from project_curiosity.vocabulary import Vocabulary
 from project_curiosity.model import ConceptActionModel
-from project_curiosity.dual_network_model import DualNetworkModel
+from project_curiosity.dual_network_model_language import DualNetworkModel
 from project_curiosity.trainer import Trainer
 from project_curiosity.dual_trainer import DualNetworkTrainer
 from project_curiosity.training_logger import TrainingLogger

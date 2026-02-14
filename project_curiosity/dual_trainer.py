@@ -14,7 +14,7 @@ import torch.nn.functional as F
 
 from . import config as C
 from .vocabulary import Vocabulary
-from .dual_network_model import DualNetworkModel
+from .dual_network_model_language import DualNetworkModel
 from .cooccurrence_stats import TokenCooccurrenceStats
 from .llm import ask
 from . import questions as Q

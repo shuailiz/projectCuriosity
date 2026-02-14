@@ -9,7 +9,7 @@ import argparse
 from pathlib import Path
 
 from project_curiosity.vocabulary import Vocabulary
-from project_curiosity.dual_network_model import DualNetworkModel
+from project_curiosity.dual_network_model_language import DualNetworkModel
 from project_curiosity.embeddings import load_pretrained, build_embedding_matrix
 from project_curiosity import config as C
 

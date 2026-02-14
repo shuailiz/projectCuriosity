@@ -1,3 +1,5 @@
 torch
 openai>=1.0.0
 gensim
+torchvision
+opencv-python
