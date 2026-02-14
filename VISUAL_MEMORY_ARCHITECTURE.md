@@ -4,8 +4,8 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│              VISUAL-MOTOR CONTINUOUS LEARNING SYSTEM             │
-│            (Hippocampus-Cortex + Curiosity-Driven)              │
+│            VISUAL-MOTOR CONTINUOUS LEARNING SYSTEM              │
+│          (Hippocampus-Cortex + Curiosity-Driven)                │
 └─────────────────────────────────────────────────────────────────┘
 
                     ┌───────────────┐
@@ -28,14 +28,14 @@
 │                 │ │  (5000 exp)  │ │                 │
 │  2-layer MLP    │ │              │ │  3-layer MLP    │
 │  hidden: 256    │ │  Stores:     │ │  hidden: 1024   │
-│  LR: 1e-3      │ │  z_t, a_t,   │ │  Wake LR: 1e-5  │
+│  LR: 1e-3      │ │  z_t, a_t,   │ │  Wake LR: 1e-5   │
 │                 │ │  z_{t+1}     │ │  Sleep LR: 5e-4 │
-│  [z_t, a_t]    │ │              │ │                 │
-│     → z_{t+1}  │ │              │ │  [z_t, a_t]     │
+│  [z_t, a_t]    │ │              │ │                  │
+│     → z_{t+1}  │ │              │ │  [z_t, a_t]      │
 │                 │ │              │ │     → z_{t+1}   │
 └────────┬────────┘ └──────────────┘ └────────┬────────┘
-         │                                    │
-         └──────────────┬─────────────────────┘
+         │                                     │
+         └──────────────┬───────────────────── ┘
                         │ prediction error
                         ▼
               ┌──────────────────┐
@@ -54,20 +54,20 @@
 ## Wake/Sleep Cycle
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                        CONTINUOUS TRAINING LOOP                         │
-│                                                                         │
-│   ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐        │
-│   │          │    │          │    │          │    │          │        │
-│   │   WAKE   │───▶│   SWS    │───▶│   REM    │───▶│  TETHER  │───┐   │
-│   │  500 stp │    │  200 stp │    │  200 stp │    │  10 stp  │   │   │
-│   │          │    │          │    │          │    │          │   │   │
-│   └──────────┘    └──────────┘    └──────────┘    └──────────┘   │   │
-│        ▲                                                          │   │
-│        │                    Auto-save checkpoint                  │   │
-│        └─────────────────────────────────────────────────────────┘   │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────┐
+│                     CONTINUOUS TRAINING LOOP                      │
+│                                                                   │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐           │
+│  │          │  │          │  │          │  │          │           │
+│  │   WAKE   │─▶│   SWS    │─▶│   REM    │─▶│  TETHER  │──┐        │
+│  │  500 stp │  │  200 stp │  │  200 stp │  │  10 stp  │  │        │
+│  │          │  │          │  │          │  │          │  │        │
+│  └──────────┘  └──────────┘  └──────────┘  └──────────┘  │        │
+│       ▲                                                   │       │
+│       │                  Auto-save checkpoint              │      │
+│       └───────────────────────────────────────────────────┘       │
+│                                                                   │
+└───────────────────────────────────────────────────────────────────┘
 ```
 
 ## Phase 1: Wake (Interaction)
@@ -103,18 +103,18 @@ Robot moves (manual / random / curiosity)
            │
            ├─────────────────────────────────┐
            ▼                                 ▼
-┌─────────────────────┐          ┌─────────────────────┐
+┌─────────────────────┐          ┌──────────────────────┐
 │  Train Fast Learner │          │  Store Experience    │
-│  (High LR: 1e-3)   │          │  in Replay Buffer    │
+│  (High LR: 1e-3)    │          │  in Replay Buffer    │
 │                     │          │                      │
-│  L = ||F_H(z,a)    │          │  {z_t, a_t, z_{t+1}} │
-│       - z_{t+1}||² │          │                      │
+│  L = ||F_H(z,a)     │          │  {z_t,a_t,z_{t+1}}   │
+│       - z_{t+1}||²  │          │                      │
 └──────────┬──────────┘          └──────────────────────┘
            │
            ▼
 ┌─────────────────────┐
 │  Train Slow Learner │  (every SLOW_WAKE_UPDATE_INTERVAL steps)
-│  (Low LR: 1e-5)    │
+│  (Low LR: 1e-5)     │
 │                     │
 │  L = 1.0 · L_dist  │  L_dist = ||F_C(z,a) - sg(F_H(z,a))||²
 │    + 0.1 · L_raw   │  L_raw  = ||F_C(z,a) - sg(z_{t+1})||²
@@ -142,7 +142,7 @@ After 500 wake steps → trigger Sleep
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  Fast Learner: FROZEN (no gradient updates)             │
-│  Slow Learner: ACTIVE (Sleep LR: 5e-4)                 │
+│  Slow Learner: ACTIVE (Sleep LR: 5e-4)                  │
 └─────────────────────────────────────────────────────────┘
 
 For 200 gradient steps:
@@ -157,7 +157,7 @@ For 200 gradient steps:
            ▼
 ┌─────────────────────┐     ┌─────────────────────┐
 │  Fast Learner       │     │  Slow Learner       │
-│  F_H(z_t, a_t)     │     │  F_C(z_t, a_t)      │
+│  F_H(z_t, a_t)      │     │  F_C(z_t, a_t)      │
 │  (frozen, no grad)  │     │  (trainable)        │
 └──────────┬──────────┘     └──────────┬──────────┘
            │                           │
@@ -179,7 +179,7 @@ For 200 gradient steps:
               ┌────────────────┐
               │  Backprop to   │
               │  Slow Learner  │
-              │  (LR: 5e-4)   │
+              │  (LR: 5e-4)    │
               └────────────────┘
 
 Purpose: Transfer Fast's recent knowledge → Slow's stable memory
@@ -190,7 +190,7 @@ Purpose: Transfer Fast's recent knowledge → Slow's stable memory
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  Fast Learner: FROZEN                                   │
-│  Slow Learner: ACTIVE (Sleep LR: 5e-4)                 │
+│  Slow Learner: ACTIVE (Sleep LR: 5e-4)                  │
 └─────────────────────────────────────────────────────────┘
 
 For 200 gradient steps:
@@ -210,15 +210,15 @@ For 200 gradient steps:
 │  z_hat_0 = z_0  (ground truth start)                    │
 │      │                                                  │
 │      ▼                                                  │
-│  z_hat_1 = F_C(z_hat_0, a_0)  ──compare──▶ z_1         │
+│  z_hat_1 = F_C(z_hat_0, a_0)  ──compare──▶ z_1          │
 │      │                                                  │
 │      ▼                                                  │
-│  z_hat_2 = F_C(z_hat_1, a_1)  ──compare──▶ z_2         │
+│  z_hat_2 = F_C(z_hat_1, a_1)  ──compare──▶ z_2          │
 │      │                                                  │
 │      ▼                                                  │
-│  z_hat_3 = F_C(z_hat_2, a_2)  ──compare──▶ z_3         │
+│  z_hat_3 = F_C(z_hat_2, a_2)  ──compare──▶ z_3          │
 │                                                         │
-│  L_ms = γ · Σ ||z_hat_k - sg(z_k)||²                   │
+│  L_ms = γ · Σ ||z_hat_k - sg(z_k)||²                    │
 │  γ = 0.5                                                │
 └─────────────────────────────────────────────────────────┘
            │
@@ -238,7 +238,7 @@ Purpose: Ensure Slow's predictions stay coherent over time,
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  Fast Learner: ACTIVE (Tether LR: 1e-3)                │
+│  Fast Learner: ACTIVE (Tether LR: 1e-3)                 │
 │  Slow Learner: FROZEN                                   │
 └─────────────────────────────────────────────────────────┘
 
@@ -288,7 +288,7 @@ Note: Output-level distillation because architectures differ
 Input: 224×224×3 RGB Image
     │
     ▼
-┌─────────────────────┐
+┌──────────────────────┐
 │  ResNet50 Backbone   │  Pretrained on ImageNet
 │  (frozen weights)    │  No fine-tuning
 │                      │
@@ -392,28 +392,28 @@ Trained to MAXIMIZE prediction error (seek novelty)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                         LOSS LANDSCAPE                          │
+│                          LOSS LANDSCAPE                         │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  WAKE PHASE                                                     │
 │  ──────────                                                     │
-│  L_fast     = ||F_H(z,a) - z_{t+1}||²          (raw targets)   │
-│  L_slow     = 1.0·||F_C - sg(F_H)||²           (distill)       │
-│             + 0.1·||F_C - sg(z_{t+1})||²        (raw)           │
-│  L_policy   = -||F_H(z,π(z)) - z_{t+1}||²      (max surprise)  │
+│  L_fast   = ||F_H(z,a) - z_{t+1}||²           (raw targets)     │
+│  L_slow   = 1.0·||F_C - sg(F_H)||²            (distill)         │
+│           + 0.1·||F_C - sg(z_{t+1})||²         (raw)            │
+│  L_policy = -||F_H(z,π(z)) - z_{t+1}||²       (max surprise)    │
 │                                                                 │
 │  SWS PHASE                                                      │
 │  ─────────                                                      │
-│  L_SWS      = 1.0·||F_C(z,a) - sg(F_H(z,a))||² (distill)      │
+│  L_SWS    = 1.0·||F_C(z,a) - sg(F_H(z,a))||²  (distill)         │
 │                                                                 │
 │  REM PHASE                                                      │
 │  ─────────                                                      │
-│  L_REM      = 0.5·Σ_k ||z_hat_k - sg(z_k)||²   (rollout)      │
-│               z_hat_k = F_C(z_hat_{k-1}, a_{k-1})              │
+│  L_REM    = 0.5·Σ_k ||z_hat_k - sg(z_k)||²    (rollout)         │
+│             z_hat_k = F_C(z_hat_{k-1}, a_{k-1})                 │
 │                                                                 │
 │  TETHER PHASE                                                   │
 │  ────────────                                                   │
-│  L_tether   = ||F_H(z,a) - sg(F_C(z,a))||²     (Fast → Slow)  │
+│  L_tether = ||F_H(z,a) - sg(F_C(z,a))||²      (Fast → Slow)     │
 │                                                                 │
 │  sg() = stop gradient (treat as fixed target)                   │
 │                                                                 │
@@ -441,48 +441,48 @@ Trained to MAXIMIZE prediction error (seek novelty)
 ## Biological Analogy
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                    BIOLOGICAL BRAIN                       │
-├──────────────────────────────────────────────────────────┤
-│                                                          │
-│  Visual Cortex (V1-V4)        Hippocampus               │
-│  ├─ Feature extraction         ├─ Fast plasticity        │
-│  ├─ Pretrained (development)   ├─ Episodic memory        │
-│  └─ Stable representations     └─ Rapid encoding         │
-│                                                          │
-│  Neocortex                     Curiosity / Dopamine      │
-│  ├─ Slow plasticity            ├─ Novelty detection      │
-│  ├─ Semantic memory            ├─ Exploration drive      │
-│  └─ Gradual integration        └─ Reward prediction error│
-│                                                          │
-│  During Sleep:                                           │
-│  ├─ SWS: Sharp-wave ripples (hippocampal replay)        │
-│  ├─ REM: Dream sequences (trajectory simulation)        │
-│  └─ Both: Systems consolidation (hippo → cortex)        │
-│                                                          │
-└──────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                       BIOLOGICAL BRAIN                       │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  Visual Cortex (V1-V4)        Hippocampus                    │
+│  ├─ Feature extraction         ├─ Fast plasticity            │
+│  ├─ Pretrained (development)   ├─ Episodic memory            │
+│  └─ Stable representations     └─ Rapid encoding             │
+│                                                              │
+│  Neocortex                     Curiosity / Dopamine          │
+│  ├─ Slow plasticity            ├─ Novelty detection          │
+│  ├─ Semantic memory            ├─ Exploration drive          │
+│  └─ Gradual integration        └─ Reward prediction error    │
+│                                                              │
+│  During Sleep:                                               │
+│  ├─ SWS: Sharp-wave ripples (hippocampal replay)             │
+│  ├─ REM: Dream sequences (trajectory simulation)             │
+│  └─ Both: Systems consolidation (hippo → cortex)             │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
                           │
                           ▼
-┌──────────────────────────────────────────────────────────┐
-│                 VISUAL-MOTOR MODEL                        │
-├──────────────────────────────────────────────────────────┤
-│                                                          │
-│  Visual Encoder                Fast Learner              │
-│  ├─ ResNet50 (frozen)          ├─ High LR (1e-3)        │
-│  ├─ Pretrained on ImageNet     ├─ Small network (256h)   │
-│  └─ 512-d embeddings           └─ Quick adaptation       │
-│                                                          │
-│  Slow Learner                  Curiosity Policy          │
-│  ├─ Low LR (1e-5 / 5e-4)      ├─ Prediction error       │
-│  ├─ Large network (1024h)      ├─ Drives exploration     │
-│  └─ Consolidated world model   └─ Seeks novel states     │
-│                                                          │
-│  During Sleep:                                           │
-│  ├─ SWS: Distill Fast → Slow (replay buffer)           │
-│  ├─ REM: Multi-step rollout consistency                 │
-│  └─ Tether: Slow → Fast (prevent drift)                │
-│                                                          │
-└──────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                      VISUAL-MOTOR MODEL                      │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  Visual Encoder                Fast Learner                  │
+│  ├─ ResNet50 (frozen)          ├─ High LR (1e-3)             │
+│  ├─ Pretrained on ImageNet     ├─ Small network (256h)       │
+│  └─ 512-d embeddings           └─ Quick adaptation           │
+│                                                              │
+│  Slow Learner                  Curiosity Policy              │
+│  ├─ Low LR (1e-5 / 5e-4)      ├─ Prediction error            │
+│  ├─ Large network (1024h)      ├─ Drives exploration         │
+│  └─ Consolidated world model   └─ Seeks novel states         │
+│                                                              │
+│  During Sleep:                                               │
+│  ├─ SWS: Distill Fast → Slow (replay buffer)                 │
+│  ├─ REM: Multi-step rollout consistency                      │
+│  └─ Tether: Slow → Fast (prevent drift)                      │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ## Data Flow Example
@@ -605,7 +605,7 @@ Single Network:             │  │  Old environment │
                             │  │  forgotten!      │
                             ▼  └──────────────────┘
     ┌───────────────────────────────────────┐
-    │ ▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░░░░░░░░░░░░ │
+    │ ▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░░░░░░░░░░░░   │
     └───────────────────────────────────────┘
       New scene only        Old scenes lost
 
@@ -621,9 +621,9 @@ Dual Network + Sleep:    Continual Learning
 
     Why it works:
     ┌────────────────────────────────────────────────────┐
-    │  Wake:   Fast learns new → Slow absorbs slowly    │
-    │  SWS:    Fast's knowledge → distilled into Slow   │
-    │  REM:    Slow's predictions → stabilized over time│
-    │  Tether: Slow's stability → anchors Fast          │
+    │  Wake:   Fast learns new → Slow absorbs slowly     │
+    │  SWS:    Fast's knowledge → distilled into Slow    │
+    │  REM:    Slow's predictions → stabilized over time │
+    │  Tether: Slow's stability → anchors Fast           │
     └────────────────────────────────────────────────────┘
 ```
