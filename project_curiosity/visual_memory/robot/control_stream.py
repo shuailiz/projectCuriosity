@@ -1,14 +1,9 @@
 #!/usr/bin/env python3
 import cv2
 import argparse
-import sys
-import os
 
-# Ensure we can import from sibling directories
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
-
-from project_curiosity.robot.visual_memory.controller import RobotInterface
-from project_curiosity.robot.visual_memory import config as C
+from .controller import RobotInterface
+from .. import config as C
 
 def main():
     parser = argparse.ArgumentParser(description="Manual Control & Stream")

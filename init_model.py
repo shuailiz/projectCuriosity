@@ -15,8 +15,8 @@ import json
 import pickle
 from pathlib import Path
 
-from project_curiosity import config as C
-from project_curiosity.vocabulary import Vocabulary
+from project_curiosity.language import config as C
+from project_curiosity.language.vocabulary import Vocabulary
 
 
 def create_model_directory(model_dir: str, vocab_words: list, learning_rate: float = None,

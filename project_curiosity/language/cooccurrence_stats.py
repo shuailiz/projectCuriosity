@@ -259,7 +259,7 @@ class TokenCooccurrenceStats:
                     # Handle concept_b:
                     # - For operations: use the actual concept_b (second operand)
                     # - For relations: concept_b is None (no second concept needed)
-                    from project_curiosity import config as C
+                    from . import config as C
                     concept_b = entry.get('concept_b')
                     
                     if action in C.RELATION_ACTIONS:

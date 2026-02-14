@@ -10,8 +10,8 @@ This script demonstrates the hippocampus-cortex analogy with:
 
 import json
 import time
-from project_curiosity.vocabulary import Vocabulary
-from project_curiosity.dual_trainer import DualNetworkTrainer
+from project_curiosity.language.vocabulary import Vocabulary
+from project_curiosity.language.dual_trainer import DualNetworkTrainer
 
 
 def print_header(title: str):

@@ -126,15 +126,17 @@ During warmup (first 50 steps), the robot explores randomly. After that, the pol
 
 ```
 project_curiosity/
-├── dual_network_model.py              # ContinuousFastLearner, SlowLearner, DualNetworkModel
-├── dual_network_model_language.py     # Language-specific variant (discrete)
-└── robot/visual_memory/
+├── dual_network_model.py              # Shared: ContinuousFast/SlowLearner
+└── visual_memory/                     # This module
     ├── config.py                      # All hyperparameters
     ├── encoder.py                     # VisualEncoder (frozen ResNet50 → 512-d)
     ├── curiosity_policy.py            # CuriosityPolicy (state → action)
     ├── trainer.py                     # VisualTrainer (orchestrates everything)
-    ├── controller.py                  # RobotInterface (serial + camera)
-    └── README.md                      # This file
+    ├── README.md                      # This file
+    └── robot/                         # Hardware interface
+        ├── controller.py              # RobotInterface (camera + servos)
+        ├── servo_control/             # Low-level servo communication
+        └── control_stream.py          # Manual control & video stream
 
 run_visual_learning.py                 # Main entry point
 

@@ -8,10 +8,10 @@ import torch
 import argparse
 from pathlib import Path
 
-from project_curiosity.vocabulary import Vocabulary
-from project_curiosity.dual_network_model_language import DualNetworkModel
-from project_curiosity.embeddings import load_pretrained, build_embedding_matrix
-from project_curiosity import config as C
+from project_curiosity.language.vocabulary import Vocabulary
+from project_curiosity.language.dual_network_model_language import DualNetworkModel
+from project_curiosity.language.embeddings import load_pretrained, build_embedding_matrix
+from project_curiosity.language import config as C
 
 
 def load_model(model_dir: str):

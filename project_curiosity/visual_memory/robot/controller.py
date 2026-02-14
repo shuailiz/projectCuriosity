@@ -1,14 +1,9 @@
 import cv2
 import time
 import numpy as np
-import sys
-import os
 
-# Ensure we can import from sibling directories
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../')))
-
-from project_curiosity.robot.servo_control.pc_controller import FastStableController, select_port
-from . import config as C
+from .servo_control.pc_controller import FastStableController, select_port
+from .. import config as C
 
 class RobotInterface:
     """

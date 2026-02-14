@@ -13,11 +13,11 @@ import json
 import pickle
 import torch
 
-from project_curiosity import config as C
-from project_curiosity.vocabulary import Vocabulary
-from project_curiosity.model import ConceptActionModel
-from project_curiosity.trainer import Trainer
-from project_curiosity.training_logger import TrainingLogger
+from project_curiosity.language import config as C
+from project_curiosity.language.vocabulary import Vocabulary
+from project_curiosity.language.model import ConceptActionModel
+from project_curiosity.language.trainer import Trainer
+from project_curiosity.language.training_logger import TrainingLogger
 
 
 def load_model(model_dir: str):

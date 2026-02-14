@@ -537,6 +537,32 @@ Auto-save → models/my_experiment/checkpoint.pt
 Resume Wake Phase (step 501)
 ```
 
+## File Structure
+
+```
+project_curiosity/
+├── dual_network_model.py              # Shared: ContinuousFast/SlowLearner
+└── visual_memory/
+    ├── config.py                      # All hyperparameters
+    ├── encoder.py                     # VisualEncoder (frozen ResNet50 → 512-d)
+    ├── curiosity_policy.py            # CuriosityPolicy (state → action)
+    ├── trainer.py                     # VisualTrainer (orchestrates everything)
+    ├── README.md                      # Detailed documentation
+    └── robot/                         # Hardware interface
+        ├── controller.py              # RobotInterface (serial + camera)
+        ├── servo_control/             # Low-level servo communication
+        └── control_stream.py          # Manual control & video stream
+
+run_visual_learning.py                 # Main entry point
+
+models/                                # Saved models (one folder per model)
+└── <model_name>/
+    ├── config.json                    # Frozen config snapshot at creation
+    ├── checkpoint.pt                  # Weights + optimizer states + counters
+    ├── replay.pt                      # Replay buffer (embeddings, no raw frames)
+    └── training.log                   # Append-only CSV training log
+```
+
 ## Model Persistence
 
 ```

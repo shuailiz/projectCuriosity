@@ -17,13 +17,13 @@ import pickle
 from pathlib import Path
 import json
 
-from project_curiosity import config as C
-from project_curiosity.vocabulary import Vocabulary
-from project_curiosity.model import ConceptActionModel
-from project_curiosity.dual_network_model_language import DualNetworkModel
-from project_curiosity.trainer import Trainer
-from project_curiosity.dual_trainer import DualNetworkTrainer
-from project_curiosity.training_logger import TrainingLogger
+from project_curiosity.language import config as C
+from project_curiosity.language.vocabulary import Vocabulary
+from project_curiosity.language.model import ConceptActionModel
+from project_curiosity.language.dual_network_model_language import DualNetworkModel
+from project_curiosity.language.trainer import Trainer
+from project_curiosity.language.dual_trainer import DualNetworkTrainer
+from project_curiosity.language.training_logger import TrainingLogger
 
 
 def load_checkpoint(checkpoint_path: str, vocab_path: str, use_dual: bool = False):
@@ -73,7 +73,7 @@ def load_checkpoint(checkpoint_path: str, vocab_path: str, use_dual: bool = Fals
     checkpoint = torch.load(checkpoint_path, map_location=C.DEVICE)
     
     # Load embeddings (use method from config if available)
-    from project_curiosity.embeddings import load_pretrained, build_embedding_matrix
+    from project_curiosity.language.embeddings import load_pretrained, build_embedding_matrix
     embedding_method = config.get('embedding_method', 'glove-wiki-gigaword-100') if config else 'glove-wiki-gigaword-100'
     print(f"Loading embeddings: {embedding_method}")
     kv = load_pretrained(embedding_method)

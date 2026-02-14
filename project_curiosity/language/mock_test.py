@@ -1,10 +1,10 @@
 """Mock test for project_curiosity without LLM calls."""
 import torch
 import torch.nn.functional as F
-from project_curiosity.vocabulary import Vocabulary
-from project_curiosity.model import ConceptActionModel
-import project_curiosity.config as C
-from project_curiosity import actions
+from .vocabulary import Vocabulary
+from .model import ConceptActionModel
+from . import config as C
+from . import actions
 import random
 
 # Mock the LLM functions

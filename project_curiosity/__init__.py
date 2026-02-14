@@ -1,12 +1,8 @@
 """project_curiosity package
 
-Public API:
-    Vocabulary, Trainer
+Two learning systems:
+    - language:       Concept learning via LLM feedback (discrete)
+    - visual_memory:  Visual-motor learning via camera + servos (continuous)
 
-Usage:
-    >>> from project_curiosity import Vocabulary, Trainer
+Both share the dual-network (Hippocampus-Cortex) architecture in dual_network_model.py.
 """
-from .vocabulary import Vocabulary
-from .trainer import Trainer
-
-__all__ = ["Vocabulary", "Trainer"]

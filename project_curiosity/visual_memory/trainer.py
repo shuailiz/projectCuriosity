@@ -13,7 +13,7 @@ from typing import List, Tuple, Dict, Optional
 from . import config as C
 from .encoder import VisualEncoder
 from .curiosity_policy import CuriosityPolicy
-from ...dual_network_model import ContinuousDualNetworkModel
+from ..dual_network_model import ContinuousDualNetworkModel
 
 class VisualTrainer:
     """

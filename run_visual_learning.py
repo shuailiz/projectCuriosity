@@ -7,9 +7,9 @@ import cv2
 import numpy as np
 import torch
 
-from project_curiosity.robot.visual_memory.trainer import VisualTrainer
-from project_curiosity.robot.visual_memory.controller import RobotInterface
-from project_curiosity.robot.visual_memory import config as C
+from project_curiosity.visual_memory.trainer import VisualTrainer
+from project_curiosity.visual_memory.robot.controller import RobotInterface
+from project_curiosity.visual_memory import config as C
 
 # Exploration modes
 MODE_MANUAL = 'manual'
