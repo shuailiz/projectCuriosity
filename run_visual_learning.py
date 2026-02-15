@@ -118,7 +118,7 @@ def main():
             action = [0.0, 0.0]
             
             if mode == MODE_CURIOSITY:
-                action = trainer.get_curiosity_action(current_frame, explore=True)
+                action = trainer.get_curiosity_action(current_frame, robot.current_angles, explore=True)
                 time.sleep(0.1)
                 
             elif mode == MODE_RANDOM:
@@ -142,6 +142,12 @@ def main():
                     if key == 255:  # No key pressed
                         continue
 
+            # Capture joint positions BEFORE executing action (for policy training)
+            joint_positions_before = list(robot.current_angles)
+            
+            # Store commanded action before it gets clipped
+            commanded_action = list(action)
+            
             # Execute Action
             next_frame, actual_action = robot.step(action)
             
@@ -150,7 +156,8 @@ def main():
                 continue
                 
             # Train (Wake phase)
-            train_stats = trainer.train_step(current_frame, actual_action, next_frame)
+            train_stats = trainer.train_step(current_frame, actual_action, next_frame, 
+                                             joint_positions_before, commanded_action)
             
             # Log
             log_parts = [f"Step {train_stats['step']}",

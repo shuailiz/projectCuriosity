@@ -42,6 +42,7 @@ POLICY_NOISE_STD = 0.3      # Exploration noise added to policy output
 POLICY_TRAIN_INTERVAL = 4   # Train policy every N steps
 POLICY_BATCH_SIZE = 16      # Batch size for policy training from replay buffer
 CURIOSITY_WARMUP_STEPS = 50 # Random exploration steps before curiosity kicks in
+POLICY_CLIPPING_PENALTY = 0.1  # Penalty weight for actions that get clipped at joint limits
 
 # ---- Phase Schedule: WAKE → SWS → REM → WAKE → ... ----
 

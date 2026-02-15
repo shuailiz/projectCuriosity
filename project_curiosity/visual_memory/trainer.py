@@ -213,14 +213,16 @@ class VisualTrainer:
         self.model.interaction_steps = checkpoint['interaction_steps']
 
     def _save_replay(self):
-        """Save replay buffer (embeddings + actions, no raw frames)."""
+        """Save replay buffer (embeddings + actions + joint positions, no raw frames)."""
         replay_data = []
         for exp in self.replay_buffer:
             replay_data.append({
                 'state_emb': exp['state_emb'].cpu(),
                 'action': exp['action'].cpu(),
+                'commanded_action': exp['commanded_action'].cpu(),
                 'next_state_emb': exp['next_state_emb'].cpu(),
                 'timestamp': exp['timestamp'],
+                'joint_positions': exp['joint_positions'].cpu(),
             })
         torch.save(replay_data, self._replay_path)
 
@@ -233,13 +235,29 @@ class VisualTrainer:
         )
         self.replay_buffer.clear()
         for entry in replay_data:
+            action = entry['action'].to(self.device)
+            
+            # Handle backward compatibility: old replays may not have joint_positions
+            if 'joint_positions' in entry:
+                joint_pos = entry['joint_positions'].to(self.device)
+            else:
+                joint_pos = torch.zeros(C.ACTION_DIM, dtype=torch.float32, device=self.device)
+            
+            # Handle backward compatibility: old replays may not have commanded_action
+            if 'commanded_action' in entry:
+                commanded = entry['commanded_action'].to(self.device)
+            else:
+                commanded = action.clone()  # Assume no clipping for old data
+            
             self.replay_buffer.append({
                 'frame': None,
-                'action': entry['action'].to(self.device),
+                'action': action,
+                'commanded_action': commanded,
                 'next_frame': None,
                 'timestamp': entry['timestamp'],
                 'state_emb': entry['state_emb'].to(self.device),
                 'next_state_emb': entry['next_state_emb'].to(self.device),
+                'joint_positions': joint_pos,
             })
 
     @staticmethod
@@ -252,27 +270,44 @@ class VisualTrainer:
             if os.path.isdir(os.path.join(C.MODELS_DIR, d))
         ])
 
-    def store_experience(self, frame, action, next_frame, state_emb, next_state_emb):
+    def store_experience(self, frame, actual_action, next_frame, state_emb, next_state_emb, 
+                         joint_positions=None, commanded_action=None):
         """
         Store experience in replay buffer.
         Args:
             frame: Raw image frame (numpy array)
-            action: List or array [d1, d2]
+            actual_action: List or array [d1, d2] - action actually applied (after clipping)
             next_frame: Raw next image frame (numpy array)
             state_emb: Tensor (ENCODED_DIM) - Cached embedding
             next_state_emb: Tensor (ENCODED_DIM) - Cached embedding
+            joint_positions: List [s1, s2] - joint angles at time of action (optional)
+            commanded_action: List [d1, d2] - action commanded by policy (before clipping)
         """
         timestamp = time.time()
-        action_tensor = torch.tensor(action, dtype=torch.float32, device=self.device)
+        action_tensor = torch.tensor(actual_action, dtype=torch.float32, device=self.device)
+        
+        # Store joint positions as tensor (default to zeros if not provided for backward compat)
+        if joint_positions is not None:
+            joint_tensor = torch.tensor(joint_positions, dtype=torch.float32, device=self.device)
+        else:
+            joint_tensor = torch.zeros(C.ACTION_DIM, dtype=torch.float32, device=self.device)
+        
+        # Store commanded action (for clipping penalty); default to actual if not provided
+        if commanded_action is not None:
+            commanded_tensor = torch.tensor(commanded_action, dtype=torch.float32, device=self.device)
+        else:
+            commanded_tensor = action_tensor.clone()
         
         # Store as dictionary
         experience = {
             'frame': frame,
             'action': action_tensor,
+            'commanded_action': commanded_tensor,
             'next_frame': next_frame,
             'timestamp': timestamp,
             'state_emb': state_emb.detach(),
-            'next_state_emb': next_state_emb.detach()
+            'next_state_emb': next_state_emb.detach(),
+            'joint_positions': joint_tensor,
         }
         self.replay_buffer.append(experience)
 
@@ -351,12 +386,19 @@ class VisualTrainer:
         
         return {"total": loss.item(), "distill": distill_val, "raw": raw_val}
 
-    def train_step(self, current_frame, action, next_frame):
+    def train_step(self, current_frame, actual_action, next_frame, joint_positions=None, commanded_action=None):
         """
         WAKE phase step: Encode -> Store -> Train Fast -> Train Slow.
         
         Fast: trains on raw next-state targets (high LR).
         Slow: L_distill (match Fast) + L_raw (conservative raw targets), low LR.
+        
+        Args:
+            current_frame: Raw image frame (numpy array)
+            actual_action: List [d1, d2] - actual action applied (after clipping)
+            next_frame: Raw next image frame (numpy array)
+            joint_positions: List [s1, s2] - joint angles at time of action (for policy training)
+            commanded_action: List [d1, d2] - action commanded by policy (before clipping)
         
         Returns:
             dict: Training stats including whether sleep should trigger.
@@ -367,18 +409,19 @@ class VisualTrainer:
             next_state_emb = self.encode_frame(next_frame)
             
         # Store
-        self.store_experience(current_frame, action, next_frame, state_emb, next_state_emb)
+        self.store_experience(current_frame, actual_action, next_frame, state_emb, next_state_emb, 
+                              joint_positions, commanded_action)
         
         # Compute curiosity reward (before training, reflects current model surprise)
-        curiosity_reward = self.compute_curiosity_reward(state_emb, action, next_state_emb)
+        curiosity_reward = self.compute_curiosity_reward(state_emb, actual_action, next_state_emb)
         
         # Train Fast Learner (one-step, high LR)
-        fast_loss = self.train_fast_learner(state_emb, action, next_state_emb)
+        fast_loss = self.train_fast_learner(state_emb, actual_action, next_state_emb)
         
         # Train Slow Learner (distillation only, low LR)
         slow_wake_loss = None
         if self.step_count % C.SLOW_WAKE_UPDATE_INTERVAL == 0:
-            slow_wake_loss = self._train_slow_wake(state_emb, action, next_state_emb)
+            slow_wake_loss = self._train_slow_wake(state_emb, actual_action, next_state_emb)
         
         self.step_count += 1
         self.wake_steps_in_cycle += 1
@@ -675,12 +718,13 @@ class VisualTrainer:
 
     # ---- Curiosity-Driven Exploration ----
 
-    def get_curiosity_action(self, frame, explore=True):
+    def get_curiosity_action(self, frame, joint_positions, explore=True):
         """
         Use the curiosity policy to generate an action for the given frame.
         Falls back to random exploration during warmup.
         Args:
             frame: Raw image frame (numpy array)
+            joint_positions: List [s1, s2] - current joint angles in degrees
             explore: Whether to add exploration noise
         Returns:
             list: [d1, d2] action values
@@ -693,7 +737,7 @@ class VisualTrainer:
         
         with torch.no_grad():
             state_emb = self.encode_frame(frame)
-        return self.policy.get_action(state_emb, explore=explore)
+        return self.policy.get_action(state_emb, joint_positions, explore=explore)
 
     def compute_curiosity_reward(self, state_emb, action, next_state_emb):
         """
@@ -730,6 +774,12 @@ class VisualTrainer:
         between prediction and actual next state.
         
         Since we want to maximize error, we negate the loss (or equivalently, minimize -error).
+        
+        The policy also receives joint positions so it can learn to avoid commanding
+        movements beyond joint limits.
+        
+        Additionally, we penalize actions that would be clipped at joint limits by computing
+        the expected clipping amount based on the current joint positions.
         """
         if batch_size is None:
             batch_size = C.POLICY_BATCH_SIZE
@@ -746,9 +796,10 @@ class VisualTrainer:
         
         states_b = torch.stack([x['state_emb'] for x in batch])
         next_states_b = torch.stack([x['next_state_emb'] for x in batch])
+        joints_b = torch.stack([x['joint_positions'] for x in batch])
         
-        # Policy generates actions from states
-        policy_actions = self.policy(states_b)
+        # Policy generates actions from states and joint positions
+        policy_actions = self.policy(states_b, joints_b)
         
         # World model predicts next state from (state, policy_action)
         inp = torch.cat([states_b, policy_actions], dim=-1)
@@ -757,7 +808,23 @@ class VisualTrainer:
         # Curiosity reward = prediction error
         # We want to MAXIMIZE this, so we minimize the negative
         prediction_error = F.mse_loss(predicted_next, next_states_b.detach())
-        policy_loss = -prediction_error
+        
+        # Clipping penalty: penalize actions that would be clipped at joint limits
+        # Compute what the new joint positions would be after applying policy_actions
+        clipping_penalty = torch.tensor(0.0, device=self.device)
+        if C.POLICY_CLIPPING_PENALTY > 0:
+            new_joints = joints_b + policy_actions
+            # Compute how much would be clipped for each joint
+            for i, (j_min, j_max) in enumerate(C.SERVO_LIMITS):
+                # Amount clipped below minimum
+                below_min = F.relu(j_min - new_joints[:, i])
+                # Amount clipped above maximum
+                above_max = F.relu(new_joints[:, i] - j_max)
+                clipping_penalty = clipping_penalty + (below_min.mean() + above_max.mean())
+        
+        # Total loss: maximize curiosity, minimize clipping
+        # policy_loss = -curiosity + penalty * clipping
+        policy_loss = -prediction_error + C.POLICY_CLIPPING_PENALTY * clipping_penalty
         
         # Backward (only updates policy, world model is not in the optimizer)
         self.policy_opt.zero_grad()
@@ -766,5 +833,6 @@ class VisualTrainer:
         
         return {
             "policy_loss": policy_loss.item(),
-            "curiosity_reward": prediction_error.item()
+            "curiosity_reward": prediction_error.item(),
+            "clipping_penalty": clipping_penalty.item() if C.POLICY_CLIPPING_PENALTY > 0 else 0.0
         }

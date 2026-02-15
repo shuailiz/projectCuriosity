@@ -52,13 +52,13 @@ def main():
             d1, d2 = 0.0, 0.0
             
             if key == ord('w'):
-                d2 = args.step
-            elif key == ord('s'):
                 d2 = -args.step
+            elif key == ord('s'):
+                d2 = args.step
             elif key == ord('a'):
-                d1 = args.step
-            elif key == ord('d'):
                 d1 = -args.step
+            elif key == ord('d'):
+                d1 = args.step
                 
             if d1 != 0 or d2 != 0:
                 robot.move_servos(d1, d2)
