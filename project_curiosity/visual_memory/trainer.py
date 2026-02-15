@@ -11,9 +11,7 @@ from collections import deque
 from typing import List, Tuple, Dict, Optional
 
 from . import config as C
-from .encoder import VisualEncoder
-from .curiosity_policy import CuriosityPolicy
-from ..dual_network_model import ContinuousDualNetworkModel
+from .model import VisualWorldModel
 
 class VisualTrainer:
     """
@@ -44,16 +42,8 @@ class VisualTrainer:
         # Create model folder
         os.makedirs(self.model_dir, exist_ok=True)
         
-        # Components
-        self.encoder = VisualEncoder()
-        
-        # Initialize Dual Network with config parameters
-        self.model = ContinuousDualNetworkModel(
-            input_dim=C.ENCODED_DIM + C.ACTION_DIM,
-            hidden_dim_fast=C.FAST_HIDDEN_DIM,
-            hidden_dim_slow=C.SLOW_HIDDEN_DIM,
-            output_dim=C.ENCODED_DIM
-        )
+        # Unified model: encoder + dual network + curiosity policy
+        self.model = VisualWorldModel()
         self.model.to(C.DEVICE)
         
         # Optimizers — separate LRs per phase
@@ -66,11 +56,8 @@ class VisualTrainer:
         self.slow_sleep_opt = torch.optim.Adam(
             self.model.slow_learner.parameters(), lr=C.SLOW_SLEEP_LR
         )
-        
-        # Curiosity Policy
-        self.policy = CuriosityPolicy()
         self.policy_opt = torch.optim.Adam(
-            self.policy.parameters(), lr=C.POLICY_LEARNING_RATE
+            self.model.policy.parameters(), lr=C.POLICY_LEARNING_RATE
         )
         
         # Replay Buffer
@@ -166,7 +153,7 @@ class VisualTrainer:
 
     def encode_frame(self, frame):
         """Encode a raw image frame into an embedding."""
-        return self.encoder.encode(frame)
+        return self.model.encode_frame(frame)
 
     # ---- Save / Load (model folder) ----
 
@@ -183,7 +170,7 @@ class VisualTrainer:
         checkpoint = {
             'fast_learner': self.model.fast_learner.state_dict(),
             'slow_learner': self.model.slow_learner.state_dict(),
-            'policy': self.policy.state_dict(),
+            'policy': self.model.policy.state_dict(),
             'fast_opt': self.fast_opt.state_dict(),
             'slow_wake_opt': self.slow_wake_opt.state_dict(),
             'slow_sleep_opt': self.slow_sleep_opt.state_dict(),
@@ -203,7 +190,7 @@ class VisualTrainer:
         )
         self.model.fast_learner.load_state_dict(checkpoint['fast_learner'])
         self.model.slow_learner.load_state_dict(checkpoint['slow_learner'])
-        self.policy.load_state_dict(checkpoint['policy'])
+        self.model.policy.load_state_dict(checkpoint['policy'])
         self.fast_opt.load_state_dict(checkpoint['fast_opt'])
         self.slow_wake_opt.load_state_dict(checkpoint['slow_wake_opt'])
         self.slow_sleep_opt.load_state_dict(checkpoint['slow_sleep_opt'])
@@ -769,7 +756,7 @@ class VisualTrainer:
         
         with torch.no_grad():
             state_emb = self.encode_frame(frame)
-        return self.policy.get_action(state_emb, joint_positions, explore=explore)
+        return self.model.policy.get_action(state_emb, joint_positions, explore=explore)
 
     def compute_curiosity_reward(self, state_emb, action, next_state_emb):
         """
@@ -819,7 +806,7 @@ class VisualTrainer:
         if len(self.replay_buffer) < batch_size:
             return None
         
-        self.policy.train()
+        self.model.policy.train()
         # Freeze world model — we only update the policy
         self.model.fast_learner.eval()
         
@@ -831,7 +818,7 @@ class VisualTrainer:
         joints_b = torch.stack([x['joint_positions'] for x in batch])
         
         # Policy generates actions from states and joint positions
-        policy_actions = self.policy(states_b, joints_b)
+        policy_actions = self.model.policy(states_b, joints_b)
         
         # World model predicts next state from (state, policy_action)
         inp = torch.cat([states_b, policy_actions], dim=-1)
