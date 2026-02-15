@@ -35,6 +35,8 @@ class VisualTrainer:
         self._replay_path = os.path.join(self.model_dir, "replay.pt")
         self._config_path = os.path.join(self.model_dir, "config.json")
         self._log_path = os.path.join(self.model_dir, "training.log")
+        self._frames_dir = os.path.join(self.model_dir, "frames")
+        self.save_frames = C.SAVE_FRAMES
         
         # Determine if this is a new model or resuming
         is_new = not os.path.exists(self._checkpoint_path)
@@ -260,6 +262,32 @@ class VisualTrainer:
                 'joint_positions': joint_pos,
             })
 
+    def _save_debug_frame(self, frame, next_frame, action):
+        """Save raw RGB frames as JPEGs for debugging.
+        
+        Files: frames/step_{N}_before.jpg, frames/step_{N}_after.jpg
+        Also writes a small metadata line to frames/index.csv.
+        """
+        from PIL import Image
+        os.makedirs(self._frames_dir, exist_ok=True)
+        
+        step = self.step_count
+        # Save before/after frames
+        img_before = Image.fromarray(frame)
+        img_before.save(os.path.join(self._frames_dir, f"step_{step:06d}_before.jpg"), quality=85)
+        
+        if next_frame is not None:
+            img_after = Image.fromarray(next_frame)
+            img_after.save(os.path.join(self._frames_dir, f"step_{step:06d}_after.jpg"), quality=85)
+        
+        # Append to index CSV (step, action, timestamp)
+        index_path = os.path.join(self._frames_dir, "index.csv")
+        write_header = not os.path.exists(index_path)
+        with open(index_path, 'a') as f:
+            if write_header:
+                f.write("step,action_d1,action_d2,timestamp\n")
+            f.write(f"{step},{action[0]:.4f},{action[1]:.4f},{time.time()}\n")
+
     @staticmethod
     def list_models():
         """List all available model names."""
@@ -275,9 +303,9 @@ class VisualTrainer:
         """
         Store experience in replay buffer.
         Args:
-            frame: Raw image frame (numpy array)
+            frame: Raw image frame (numpy array, RGB)
             actual_action: List or array [d1, d2] - action actually applied (after clipping)
-            next_frame: Raw next image frame (numpy array)
+            next_frame: Raw next image frame (numpy array, RGB)
             state_emb: Tensor (ENCODED_DIM) - Cached embedding
             next_state_emb: Tensor (ENCODED_DIM) - Cached embedding
             joint_positions: List [s1, s2] - joint angles at time of action (optional)
@@ -297,6 +325,10 @@ class VisualTrainer:
             commanded_tensor = torch.tensor(commanded_action, dtype=torch.float32, device=self.device)
         else:
             commanded_tensor = action_tensor.clone()
+        
+        # Save debug frames as JPEG if enabled
+        if self.save_frames and frame is not None:
+            self._save_debug_frame(frame, next_frame, action)
         
         # Store as dictionary
         experience = {

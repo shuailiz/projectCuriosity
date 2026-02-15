@@ -27,6 +27,8 @@ def main():
                         help="Model name (creates new or resumes existing)")
     parser.add_argument("--list-models", action="store_true",
                         help="List available models and exit")
+    parser.add_argument("--save-frames", action="store_true",
+                        help="Save raw RGB frames as JPEGs for debugging")
     args = parser.parse_args()
 
     # List models and exit
@@ -46,6 +48,9 @@ def main():
     try:
         robot = RobotInterface(port=args.port, camera_index=args.camera)
         trainer = VisualTrainer(model_name=args.model)
+        if args.save_frames:
+            trainer.save_frames = True
+            print("Frame saving ENABLED → models/{}/frames/".format(args.model))
     except Exception as e:
         print(f"Initialization Error: {e}")
         return

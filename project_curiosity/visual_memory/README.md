@@ -145,7 +145,11 @@ models/                                # Saved models (one folder per model)
     ├── config.json                    # Frozen config snapshot at creation
     ├── checkpoint.pt                  # Weights + optimizer states + counters
     ├── replay.pt                      # Replay buffer (embeddings, no raw frames)
-    └── training.log                   # Append-only CSV training log
+    ├── training.log                   # Append-only CSV training log
+    └── frames/                        # Debug frames (--save-frames)
+        ├── index.csv                  # Step, action, timestamp index
+        ├── step_000000_before.jpg     # Pre-action frame
+        └── step_000000_after.jpg      # Post-action frame
 ```
 
 ## Usage
@@ -171,6 +175,9 @@ python run_visual_learning.py --list-models
 python run_visual_learning.py --model my_experiment --mode curiosity   # auto-explore
 python run_visual_learning.py --model my_experiment --mode random      # random actions
 python run_visual_learning.py --model my_experiment --mode manual      # keyboard control
+
+# Save raw frames for debugging (before/after each action as JPEG)
+python run_visual_learning.py --model my_experiment --save-frames
 ```
 
 ### Controls
@@ -202,3 +209,4 @@ All hyperparameters are in `config.py`. Key parameters:
 | `TETHER_STEPS` | 10 | Post-sleep Fast tether steps |
 | `REPLAY_BUFFER_SIZE` | 5000 | Max experiences stored |
 | `ENCODED_DIM` | 512 | Visual embedding dimension |
+| `SAVE_FRAMES` | False | Save raw RGB frames as JPEGs for debugging |

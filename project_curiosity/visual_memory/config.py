@@ -81,3 +81,9 @@ TETHER_LR = 0.001           # Learning rate for tether distillation
 # Contains: config.json, checkpoint.pt, replay.pt, training.log
 MODELS_DIR = "models"
 CHECKPOINT_SAVE_INTERVAL = 1  # Auto-save every N sleep cycles (0 = manual only)
+
+# Debug: Frame Storage
+# When enabled, saves raw RGB frames as JPEGs in MODELS_DIR/<name>/frames/
+# Useful for debugging exploration, encoder quality, and replay visualization.
+# Off by default to save disk space (~50-100KB per frame pair).
+SAVE_FRAMES = False
