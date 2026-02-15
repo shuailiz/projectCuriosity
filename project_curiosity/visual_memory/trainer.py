@@ -809,18 +809,15 @@ class VisualTrainer:
         # We want to MAXIMIZE this, so we minimize the negative
         prediction_error = F.mse_loss(predicted_next, next_states_b.detach())
         
-        # Clipping penalty: penalize actions that would be clipped at joint limits
-        # Compute what the new joint positions would be after applying policy_actions
+        # Clipping penalty: penalize when the policy outputs actions that would be clipped
+        # We use the actual clipping that occurred (commanded - actual) as a supervision signal
+        # to teach the policy to output actions closer to what actually gets applied
         clipping_penalty = torch.tensor(0.0, device=self.device)
         if C.POLICY_CLIPPING_PENALTY > 0:
-            new_joints = joints_b + policy_actions
-            # Compute how much would be clipped for each joint
-            for i, (j_min, j_max) in enumerate(C.SERVO_LIMITS):
-                # Amount clipped below minimum
-                below_min = F.relu(j_min - new_joints[:, i])
-                # Amount clipped above maximum
-                above_max = F.relu(new_joints[:, i] - j_max)
-                clipping_penalty = clipping_penalty + (below_min.mean() + above_max.mean())
+            actual_b = torch.stack([x['action'] for x in batch])
+            # Penalize policy for outputting actions different from what actually got applied
+            # This creates gradient flow: policy learns to output actions that won't be clipped
+            clipping_penalty = F.mse_loss(policy_actions, actual_b.detach())
         
         # Total loss: maximize curiosity, minimize clipping
         # policy_loss = -curiosity + penalty * clipping
