@@ -20,6 +20,7 @@ SERVO_LIMITS = [
     (-90.0, 90.0),  # S1 Min/Max
     (-40.0, 40.0)   # S2 Min/Max
 ]
+SERVO_SETTLE_DELAY = 0.3    # Seconds to wait after servo movement for vibration to settle
 
 # Dual Network Settings
 # Fast Learner (Hippocampus)

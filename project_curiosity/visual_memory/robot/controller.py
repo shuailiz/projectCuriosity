@@ -116,9 +116,8 @@ class RobotInterface:
         # Move robot
         real_d1, real_d2 = self.move_servos(d1, d2)
         
-        # Wait for movement to settle?
-        # Servos are fast, but maybe a small sleep is needed for the image to be stable
-        time.sleep(0.1) 
+        # Wait for servo vibration to settle before capturing the frame
+        time.sleep(C.SERVO_SETTLE_DELAY)
         
         # Capture new frame
         next_frame = self.get_frame()
