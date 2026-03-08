@@ -12,7 +12,7 @@ import torch.nn.functional as F
 from typing import Dict, List, Optional
 
 from . import config as C
-from .encoder import VisualEncoder
+from .encoder import VisualEncoder, VideoEncoder
 from .curiosity_policy import CuriosityPolicy
 from ..dual_network_model import ContinuousDualNetworkModel
 
@@ -36,7 +36,10 @@ class VisualWorldModel(nn.Module):
         super().__init__()
 
         # --- Visual Encoder (frozen backbone) ---
-        self.encoder = VisualEncoder()
+        if C.ENCODER_TYPE == '3d':
+            self.encoder = VideoEncoder()
+        else:
+            self.encoder = VisualEncoder()
 
         # --- Dual-Network World Model ---
         self.dual_net = ContinuousDualNetworkModel(

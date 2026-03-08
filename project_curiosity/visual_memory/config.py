@@ -5,10 +5,21 @@ import torch
 # Device configuration
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
 
-# Visual Encoder Settings
+# ---- Encoder Selection ----
+# '2d': Single-frame ResNet encoder (original)
+# '3d': Multi-frame R3D-18 video encoder (temporal, requires CLIP_FRAMES frames per step)
+ENCODER_TYPE = '3d'
+
+# 2D Encoder Settings (used when ENCODER_TYPE == '2d')
 ENCODER_MODEL = 'resnet50'  # Options: 'resnet18', 'resnet34', 'resnet50'
-IMAGE_SIZE = (224, 224)     # Standard input size for ResNet
-ENCODED_DIM = 512           # Output dimension of the visual encoder
+
+# 3D Encoder Settings (used when ENCODER_TYPE == '3d')
+CLIP_FRAMES = 8             # Number of frames per video clip (collected after each action)
+CLIP_FPS = 30               # Expected camera FPS (used for display only)
+
+# Shared encoder settings
+IMAGE_SIZE = (224, 224)     # Standard input size for ResNet / R3D
+ENCODED_DIM = 512           # Output dimension of the visual encoder (both 2D and 3D)
 
 # Action Settings
 ACTION_DIM = 2          # Servo 1 delta, Servo 2 delta
@@ -20,7 +31,7 @@ SERVO_LIMITS = [
     (-90.0, 90.0),  # S1 Min/Max
     (-40.0, 40.0)   # S2 Min/Max
 ]
-SERVO_SETTLE_DELAY = 0.3    # Seconds to wait after servo movement for vibration to settle
+SERVO_SETTLE_DELAY = 0.15   # Seconds to wait after servo movement for vibration to settle (reduced for 2Hz)
 
 # Dual Network Settings
 # Fast Learner (Hippocampus)
@@ -76,6 +87,7 @@ REM_GAMMA = 0.5             # Weight for multi-step rollout loss
 # Uses output-level distillation (architectures differ).
 TETHER_STEPS = 10           # Gradient steps for Fast tether
 TETHER_LR = 0.001           # Learning rate for tether distillation
+GRAD_CLIP_NORM = 1.0        # Max gradient norm for all optimizers (prevents NaN/Inf from policy divergence)
 
 # Model Storage
 # Each model gets its own folder: MODELS_DIR/<name>/

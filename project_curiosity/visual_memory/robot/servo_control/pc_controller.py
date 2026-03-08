@@ -19,9 +19,31 @@ class FastStableController:
             print(f"Connection error: {e}")
             sys.exit(1)
     
-    def send(self, command):
-        """Send command immediately"""
+    def send(self, command, clear_buffers=True):
+        """Send command immediately.
+        
+        Args:
+            command: Command string to send
+            clear_buffers: If True, clear input buffer before sending to discard stale responses
+        """
         try:
+            if clear_buffers:
+                self.serial.reset_input_buffer()
+            self.serial.write(f"{command}\n".encode())
+            self.serial.flush()
+            return True
+        except:
+            return False
+    
+    def sync_send(self, command):
+        """Send command with full buffer sync - clears both input and output buffers first.
+        
+        Use this for time-critical commands where you want to ensure the command
+        is processed immediately without any queued commands ahead of it.
+        """
+        try:
+            self.serial.reset_input_buffer()
+            self.serial.reset_output_buffer()
             self.serial.write(f"{command}\n".encode())
             self.serial.flush()
             return True

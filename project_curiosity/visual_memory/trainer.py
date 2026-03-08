@@ -59,6 +59,9 @@ class VisualTrainer:
         self.policy_opt = torch.optim.Adam(
             self.model.policy.parameters(), lr=C.POLICY_LEARNING_RATE
         )
+        self.tether_opt = torch.optim.Adam(
+            self.model.fast_learner.parameters(), lr=C.TETHER_LR
+        )
         
         # Replay Buffer
         self.replay_buffer = deque(maxlen=C.REPLAY_BUFFER_SIZE)
@@ -67,6 +70,11 @@ class VisualTrainer:
         self.wake_steps_in_cycle = 0
         self.cycle_count = 0
         self.loss_fn = nn.MSELoss()
+        
+        # CPU shadow of the last successfully built checkpoint.
+        # Updated every time _save_checkpoint succeeds so that a CUDA crash
+        # during exit can still write this to disk without touching the GPU.
+        self._cpu_shadow_checkpoint = None
         
         if is_new:
             # Save config snapshot for new model
@@ -81,11 +89,20 @@ class VisualTrainer:
             print(f"  Step: {self.step_count}, Cycle: {self.cycle_count}, "
                   f"Replay: {len(self.replay_buffer)} entries")
 
+        # Device verification
+        enc_dev  = next(self.model.encoder.parameters()).device
+        fast_dev = next(self.model.fast_learner.parameters()).device
+        slow_dev = next(self.model.slow_learner.parameters()).device
+        pol_dev  = next(self.model.policy.parameters()).device
+        print(f"  Devices — encoder:{enc_dev}  fast:{fast_dev}  slow:{slow_dev}  policy:{pol_dev}")
+
     def _save_config_snapshot(self):
         """Save current config values as JSON for reproducibility."""
         config_snapshot = {
             # Architecture
+            "encoder_type": C.ENCODER_TYPE,
             "encoder_model": C.ENCODER_MODEL,
+            "clip_frames": C.CLIP_FRAMES if C.ENCODER_TYPE == '3d' else None,
             "encoded_dim": C.ENCODED_DIM,
             "action_dim": C.ACTION_DIM,
             "fast_hidden_dim": C.FAST_HIDDEN_DIM,
@@ -151,9 +168,13 @@ class VisualTrainer:
             writer = csv.writer(f)
             writer.writerow(row)
 
-    def encode_frame(self, frame):
-        """Encode a raw image frame into an embedding."""
-        return self.model.encode_frame(frame)
+    def encode_frame(self, obs):
+        """Encode an observation into an embedding.
+
+        For 2D encoder: obs is a single numpy array (H, W, 3).
+        For 3D encoder: obs is a list of numpy arrays (CLIP_FRAMES x H x W x 3).
+        """
+        return self.model.encode_frame(obs)
 
     # ---- Save / Load (model folder) ----
 
@@ -165,23 +186,56 @@ class VisualTrainer:
         print(f"Model '{self.model_name}' saved (step={self.step_count}, "
               f"cycle={self.cycle_count}, replay={len(self.replay_buffer)})")
 
-    def _save_checkpoint(self):
-        """Save model weights, optimizer states, and counters."""
-        checkpoint = {
-            'fast_learner': self.model.fast_learner.state_dict(),
-            'slow_learner': self.model.slow_learner.state_dict(),
-            'policy': self.model.policy.state_dict(),
-            'fast_opt': self.fast_opt.state_dict(),
-            'slow_wake_opt': self.slow_wake_opt.state_dict(),
-            'slow_sleep_opt': self.slow_sleep_opt.state_dict(),
-            'policy_opt': self.policy_opt.state_dict(),
+    def _build_cpu_checkpoint(self):
+        """Build a checkpoint dict with all tensors on CPU.
+        
+        Copies weights off the GPU immediately. Safe to call any time the
+        CUDA context is healthy. The result can be written to disk even after
+        a subsequent CUDA crash because it contains no GPU tensors.
+        """
+        def _cpu_state_dict(module):
+            return {k: v.detach().cpu() for k, v in module.state_dict().items()}
+        
+        def _cpu_opt_state(opt):
+            sd = opt.state_dict()
+            cpu_state = {}
+            for k, v in sd.get('state', {}).items():
+                cpu_state[k] = {ik: (iv.detach().cpu() if isinstance(iv, torch.Tensor) else iv)
+                                for ik, iv in v.items()}
+            return {'state': cpu_state, 'param_groups': sd['param_groups']}
+        
+        return {
+            'fast_learner': _cpu_state_dict(self.model.fast_learner),
+            'slow_learner': _cpu_state_dict(self.model.slow_learner),
+            'policy': _cpu_state_dict(self.model.policy),
+            'fast_opt': _cpu_opt_state(self.fast_opt),
+            'slow_wake_opt': _cpu_opt_state(self.slow_wake_opt),
+            'slow_sleep_opt': _cpu_opt_state(self.slow_sleep_opt),
+            'policy_opt': _cpu_opt_state(self.policy_opt),
+            'tether_opt': _cpu_opt_state(self.tether_opt),
             'step_count': self.step_count,
             'wake_steps_in_cycle': self.wake_steps_in_cycle,
             'cycle_count': self.cycle_count,
             'consolidation_count': self.model.consolidation_count,
             'interaction_steps': self.model.interaction_steps,
         }
-        torch.save(checkpoint, self._checkpoint_path)
+
+    def _save_checkpoint(self):
+        """Save model weights, optimizer states, and counters."""
+        try:
+            checkpoint = self._build_cpu_checkpoint()
+            # Update shadow before writing so it's available on CUDA crash
+            self._cpu_shadow_checkpoint = checkpoint
+            torch.save(checkpoint, self._checkpoint_path)
+        except Exception as e:
+            print(f"Warning: GPU save failed ({e}).")
+            if self._cpu_shadow_checkpoint is not None:
+                print("Falling back to last CPU shadow checkpoint...")
+                try:
+                    torch.save(self._cpu_shadow_checkpoint, self._checkpoint_path)
+                    print("Shadow checkpoint saved successfully.")
+                except Exception as e2:
+                    print(f"Error: Shadow save also failed ({e2}). Checkpoint NOT saved.")
 
     def _load_checkpoint(self):
         """Load model weights, optimizer states, and counters."""
@@ -195,6 +249,8 @@ class VisualTrainer:
         self.slow_wake_opt.load_state_dict(checkpoint['slow_wake_opt'])
         self.slow_sleep_opt.load_state_dict(checkpoint['slow_sleep_opt'])
         self.policy_opt.load_state_dict(checkpoint['policy_opt'])
+        if 'tether_opt' in checkpoint:
+            self.tether_opt.load_state_dict(checkpoint['tether_opt'])
         self.step_count = checkpoint['step_count']
         self.wake_steps_in_cycle = checkpoint['wake_steps_in_cycle']
         self.cycle_count = checkpoint['cycle_count']
@@ -220,23 +276,23 @@ class VisualTrainer:
         if not os.path.exists(self._replay_path):
             return
         replay_data = torch.load(
-            self._replay_path, map_location=self.device, weights_only=False
+            self._replay_path, map_location='cpu', weights_only=False
         )
         self.replay_buffer.clear()
         for entry in replay_data:
-            action = entry['action'].to(self.device)
+            action = entry['action'].cpu()
             
             # Handle backward compatibility: old replays may not have joint_positions
             if 'joint_positions' in entry:
-                joint_pos = entry['joint_positions'].to(self.device)
+                joint_pos = entry['joint_positions'].cpu()
             else:
-                joint_pos = torch.zeros(C.ACTION_DIM, dtype=torch.float32, device=self.device)
+                joint_pos = torch.zeros(C.ACTION_DIM, dtype=torch.float32)
             
             # Handle backward compatibility: old replays may not have commanded_action
             if 'commanded_action' in entry:
-                commanded = entry['commanded_action'].to(self.device)
+                commanded = entry['commanded_action'].cpu()
             else:
-                commanded = action.clone()  # Assume no clipping for old data
+                commanded = action.clone()
             
             self.replay_buffer.append({
                 'frame': None,
@@ -244,8 +300,8 @@ class VisualTrainer:
                 'commanded_action': commanded,
                 'next_frame': None,
                 'timestamp': entry['timestamp'],
-                'state_emb': entry['state_emb'].to(self.device),
-                'next_state_emb': entry['next_state_emb'].to(self.device),
+                'state_emb': entry['state_emb'].cpu(),
+                'next_state_emb': entry['next_state_emb'].cpu(),
                 'joint_positions': joint_pos,
             })
 
@@ -299,34 +355,37 @@ class VisualTrainer:
             commanded_action: List [d1, d2] - action commanded by policy (before clipping)
         """
         timestamp = time.time()
-        action_tensor = torch.tensor(actual_action, dtype=torch.float32, device=self.device)
+        action_tensor = torch.tensor(actual_action, dtype=torch.float32)
         
         # Store joint positions as tensor (default to zeros if not provided for backward compat)
         if joint_positions is not None:
-            joint_tensor = torch.tensor(joint_positions, dtype=torch.float32, device=self.device)
+            joint_tensor = torch.tensor(joint_positions, dtype=torch.float32)
         else:
-            joint_tensor = torch.zeros(C.ACTION_DIM, dtype=torch.float32, device=self.device)
+            joint_tensor = torch.zeros(C.ACTION_DIM, dtype=torch.float32)
         
         # Store commanded action (for clipping penalty); default to actual if not provided
         if commanded_action is not None:
-            commanded_tensor = torch.tensor(commanded_action, dtype=torch.float32, device=self.device)
+            commanded_tensor = torch.tensor(commanded_action, dtype=torch.float32)
         else:
             commanded_tensor = action_tensor.clone()
         
         # Save debug frames as JPEG if enabled
         if self.save_frames and frame is not None:
-            self._save_debug_frame(frame, next_frame, action)
+            self._save_debug_frame(frame, next_frame, actual_action)
         
-        # Store as dictionary
+        # Store tensors on CPU to prevent VRAM exhaustion over long runs.
+        # They are moved to device at sample time.
         experience = {
-            'frame': frame,
-            'action': action_tensor,
-            'commanded_action': commanded_tensor,
-            'next_frame': next_frame,
+            # Do not retain raw image arrays in RAM replay buffer.
+            # They are large (~MB each) and are not used by training.
+            'frame': None,
+            'action': action_tensor.cpu(),
+            'commanded_action': commanded_tensor.cpu(),
+            'next_frame': None,
             'timestamp': timestamp,
-            'state_emb': state_emb.detach(),
-            'next_state_emb': next_state_emb.detach(),
-            'joint_positions': joint_tensor,
+            'state_emb': state_emb.detach().cpu(),
+            'next_state_emb': next_state_emb.detach().cpu(),
+            'joint_positions': joint_tensor.cpu(),
         }
         self.replay_buffer.append(experience)
 
@@ -354,6 +413,7 @@ class VisualTrainer:
         # Backward
         self.fast_opt.zero_grad()
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.model.fast_learner.parameters(), C.GRAD_CLIP_NORM)
         self.fast_opt.step()
         
         return loss.item()
@@ -401,6 +461,7 @@ class VisualTrainer:
         
         self.slow_wake_opt.zero_grad()
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.model.slow_learner.parameters(), C.GRAD_CLIP_NORM)
         self.slow_wake_opt.step()
         
         return {"total": loss.item(), "distill": distill_val, "raw": raw_val}
@@ -463,6 +524,7 @@ class VisualTrainer:
             "buffer_size": len(self.replay_buffer),
             "should_sleep": should_sleep,
             "wake_steps": self.wake_steps_in_cycle,
+            "next_state_emb": next_state_emb.detach().cpu(),
         }
 
     def _sample_sequences(self, seq_len, batch_size):
@@ -518,8 +580,8 @@ class VisualTrainer:
         for step in range(sws_steps):
             batch = random.sample(self.replay_buffer, C.BATCH_SIZE)
             
-            states_b = torch.stack([x['state_emb'] for x in batch])
-            actions_b = torch.stack([x['action'] for x in batch])
+            states_b = torch.stack([x['state_emb'] for x in batch]).to(self.device)
+            actions_b = torch.stack([x['action'] for x in batch]).to(self.device)
             inp = torch.cat([states_b, actions_b], dim=-1)
             
             L_sws = torch.tensor(0.0, device=self.device)
@@ -537,6 +599,7 @@ class VisualTrainer:
             
             self.slow_sleep_opt.zero_grad()
             L_sws.backward()
+            torch.nn.utils.clip_grad_norm_(self.model.slow_learner.parameters(), C.GRAD_CLIP_NORM)
             self.slow_sleep_opt.step()
             
             log["L_sws"].append(L_sws.item())
@@ -586,9 +649,9 @@ class VisualTrainer:
             states = []
             actions_list = []
             for t in range(K + 1):
-                states.append(torch.stack([seq[t]['state_emb'] for seq in sequences]))
+                states.append(torch.stack([seq[t]['state_emb'] for seq in sequences]).to(self.device))
             for t in range(K):
-                actions_list.append(torch.stack([seq[t]['action'] for seq in sequences]))
+                actions_list.append(torch.stack([seq[t]['action'] for seq in sequences]).to(self.device))
             
             # Targets: stopgrad so encoder doesn't cheat by drifting targets
             z_targets = [s.detach() for s in states[1:]]
@@ -607,6 +670,7 @@ class VisualTrainer:
             
             self.slow_sleep_opt.zero_grad()
             L_rem.backward()
+            torch.nn.utils.clip_grad_norm_(self.model.slow_learner.parameters(), C.GRAD_CLIP_NORM)
             self.slow_sleep_opt.step()
             
             log["L_ms"].append(L_ms.item())
@@ -636,15 +700,11 @@ class VisualTrainer:
         self.model.fast_learner.train()
         self.model.slow_learner.eval()
         
-        tether_opt = torch.optim.Adam(
-            self.model.fast_learner.parameters(), lr=C.TETHER_LR
-        )
-        
         tether_losses = []
         for _ in range(tether_steps):
             batch = random.sample(self.replay_buffer, C.BATCH_SIZE)
-            states_b = torch.stack([x['state_emb'] for x in batch])
-            actions_b = torch.stack([x['action'] for x in batch])
+            states_b = torch.stack([x['state_emb'] for x in batch]).to(self.device)
+            actions_b = torch.stack([x['action'] for x in batch]).to(self.device)
             inp = torch.cat([states_b, actions_b], dim=-1)
             
             with torch.no_grad():
@@ -653,9 +713,10 @@ class VisualTrainer:
             fast_pred = self.model.fast_learner(inp)
             t_loss = self.loss_fn(fast_pred, slow_pred)
             
-            tether_opt.zero_grad()
+            self.tether_opt.zero_grad()
             t_loss.backward()
-            tether_opt.step()
+            torch.nn.utils.clip_grad_norm_(self.model.fast_learner.parameters(), C.GRAD_CLIP_NORM)
+            self.tether_opt.step()
             tether_losses.append(t_loss.item())
         
         return {
@@ -707,6 +768,23 @@ class VisualTrainer:
             rem_L_ms=rem_stats.get("avg_L_ms", ""),
             tether_loss=tether_stats.get("avg_tether_loss", ""),
         )
+        
+        # Flush the CUDA caching allocator to release any memory PyTorch is
+        # holding but not actively using. This prevents the allocator cache
+        # from growing unboundedly over many cycles and causing OOM crashes.
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            allocated = torch.cuda.memory_allocated() / 1024**2
+            reserved = torch.cuda.memory_reserved() / 1024**2
+            print(f"  VRAM: {allocated:.0f}MB allocated, {reserved:.0f}MB reserved")
+
+        # Always refresh the CPU shadow after sleep while CUDA is healthy.
+        # This ensures a crash during the next wake phase can still save the
+        # post-sleep weights without touching the GPU.
+        try:
+            self._cpu_shadow_checkpoint = self._build_cpu_checkpoint()
+        except Exception as e:
+            print(f"Warning: could not refresh CPU shadow checkpoint ({e})")
         
         # Auto-save after sleep
         if C.CHECKPOINT_SAVE_INTERVAL > 0 and self.cycle_count % C.CHECKPOINT_SAVE_INTERVAL == 0:
@@ -813,9 +891,9 @@ class VisualTrainer:
         # Sample batch from replay buffer
         batch = random.sample(self.replay_buffer, batch_size)
         
-        states_b = torch.stack([x['state_emb'] for x in batch])
-        next_states_b = torch.stack([x['next_state_emb'] for x in batch])
-        joints_b = torch.stack([x['joint_positions'] for x in batch])
+        states_b = torch.stack([x['state_emb'] for x in batch]).to(self.device)
+        next_states_b = torch.stack([x['next_state_emb'] for x in batch]).to(self.device)
+        joints_b = torch.stack([x['joint_positions'] for x in batch]).to(self.device)
         
         # Policy generates actions from states and joint positions
         policy_actions = self.model.policy(states_b, joints_b)
@@ -833,7 +911,7 @@ class VisualTrainer:
         # to teach the policy to output actions closer to what actually gets applied
         clipping_penalty = torch.tensor(0.0, device=self.device)
         if C.POLICY_CLIPPING_PENALTY > 0:
-            actual_b = torch.stack([x['action'] for x in batch])
+            actual_b = torch.stack([x['action'] for x in batch]).to(self.device)
             # Penalize policy for outputting actions different from what actually got applied
             # This creates gradient flow: policy learns to output actions that won't be clipped
             clipping_penalty = F.mse_loss(policy_actions, actual_b.detach())
@@ -845,6 +923,7 @@ class VisualTrainer:
         # Backward (only updates policy, world model is not in the optimizer)
         self.policy_opt.zero_grad()
         policy_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.model.policy.parameters(), C.GRAD_CLIP_NORM)
         self.policy_opt.step()
         
         return {

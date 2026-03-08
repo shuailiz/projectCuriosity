@@ -62,6 +62,22 @@ def set_servo_safe(servo_index, angle):
         pass
     return False
 
+def drain_to_latest():
+    """Drain input buffer and return only the most recent command.
+    
+    This prevents command queue buildup - if multiple commands arrived
+    while we were processing, we skip to the latest one.
+    """
+    latest_command = None
+    while select.select([sys.stdin], [], [], 0)[0]:
+        try:
+            line = sys.stdin.readline().strip()
+            if line:
+                latest_command = line
+        except:
+            break
+    return latest_command
+
 print("Stable Servo Control Ready")
 print(f"Servo 1 on channel {SERVO1_CHANNEL}, Servo 2 on channel {SERVO2_CHANNEL}")
 print("Commands: servo1 <angle>, servo2 <angle>, both <angle>, servos <angle1> <angle2>, angles, stop")
@@ -125,6 +141,21 @@ while not user_sw.raw():
             
             else:
                 print("Unknown command")
+            
+            # After processing, check if more commands queued up
+            # If so, skip to the latest to stay in sync
+            latest = drain_to_latest()
+            if latest:
+                # Process the latest command immediately on next iteration
+                # by putting it back (we'll handle it next loop)
+                # Actually, just process it now inline
+                cmd_type, value = parse_command(latest)
+                if cmd_type == "servos":
+                    angle1, angle2 = value
+                    set_servo_safe(0, angle1)
+                    set_servo_safe(1, angle2)
+                    servos.load()
+                    print(f"S1:{angle1} S2:{angle2}")
         else:
             # No input available, small delay to prevent busy waiting
             time.sleep_ms(10)

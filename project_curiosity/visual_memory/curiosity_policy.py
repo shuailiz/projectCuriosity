@@ -82,11 +82,14 @@ class CuriosityPolicy(nn.Module):
             list: [d1, d2] action values
         """
         with torch.no_grad():
-            state_b = state_emb.unsqueeze(0)
+            policy_device = next(self.parameters()).device
+            state_b = state_emb.unsqueeze(0).to(policy_device)
             if isinstance(joint_positions, list):
-                joint_b = torch.tensor(joint_positions, dtype=torch.float32, device=state_emb.device).unsqueeze(0)
+                joint_b = torch.tensor(
+                    joint_positions, dtype=torch.float32, device=policy_device
+                ).unsqueeze(0)
             else:
-                joint_b = joint_positions.unsqueeze(0)
+                joint_b = joint_positions.unsqueeze(0).to(policy_device)
             
             action = self.forward(state_b, joint_b).squeeze(0)
             
